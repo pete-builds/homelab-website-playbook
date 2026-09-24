@@ -1,0 +1,26 @@
+# Builds the site exactly the way the server does, on every pull request and
+# every push to main. The Dockerfile runs `npm run build` and `npm run check`
+# inside the build, so a red X here means the server would refuse it too, and
+# a green one means it will build there. The image is the same one the server
+# builds, so no Node version can drift between here, your laptop and the server.
+name: site
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: site-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the site image (the site's checks run inside it)
+        run: docker build --progress=plain --build-arg "BUILD_ID=${GITHUB_SHA::12}" .

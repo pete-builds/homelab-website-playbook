@@ -1,0 +1,98 @@
+# Checks the LIVE site every 6 hours from outside your house: it must answer,
+# carry your marker sentence, and send its security headers. When it fails,
+# this opens an issue labelled site-down (GitHub emails you about it) or adds
+# a comment to the one already open. When the site is back, it closes it.
+#
+# GitHub switches scheduled workflows OFF after 60 days with no activity in
+# the repository. So this is one watcher, not the only one: keep the server's
+# own messages on too, and any commit turns this back on.
+name: uptime
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+concurrency:
+  group: uptime
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      SITE_URL: https://{{DOMAIN}}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the live site
+        id: verify
+        run: |
+          if [ ! -f scripts/verify-site.sh ]; then
+            echo "::error::scripts/verify-site.sh is missing, so nothing was checked"
+            exit 1
+          fi
+          # The marker is read at run time, so changing it in src/site.json
+          # never leaves this check looking for the old one.
+          marker=$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync("src/site.json", "utf8")).marker || "")')
+          if [ -z "$marker" ]; then
+            echo "::error::src/site.json has no marker, so the check would prove nothing"
+            exit 1
+          fi
+          set +e
+          bash scripts/verify-site.sh "$SITE_URL" "$marker" > verify.log 2>&1
+          rc=$?
+          set -e
+          cat verify.log
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+
+      # 0 up, 1 down, 3 undecided (a Cloudflare challenge answered instead of
+      # the site). Anything else means the check itself broke: that fails the
+      # run without claiming anything about the site.
+      - name: Site is down, so open the issue or add to it
+        if: steps.verify.outputs.rc == '1'
+        run: |
+          body=$(mktemp)
+          {
+            echo "The uptime check could not confirm $SITE_URL at $(date -u '+%Y-%m-%d %H:%M UTC')."
+            echo
+            echo '```'
+            tail -n 20 verify.log
+            echo '```'
+            echo
+            echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "This issue closes itself when the site answers again."
+          } > "$body"
+          num=$(gh issue list --label site-down --state open --limit 1 --json number --jq '.[0].number // empty')
+          if [ -n "$num" ]; then
+            gh issue comment "$num" --body-file "$body"
+          else
+            gh label create site-down --color B60205 --description "The uptime check cannot confirm the live site" --force
+            gh issue create --title "Site down: $SITE_URL" --label site-down --body-file "$body"
+          fi
+          echo "::error::$SITE_URL is down; see the site-down issue"
+          exit 1
+
+      - name: Site is up, so close any open issue
+        if: steps.verify.outputs.rc == '0'
+        run: |
+          for num in $(gh issue list --label site-down --state open --json number --jq '.[].number'); do
+            gh issue close "$num" --comment "Back up: $SITE_URL answered correctly at $(date -u '+%Y-%m-%d %H:%M UTC')."
+          done
+
+      - name: Undecided, so change nothing
+        if: steps.verify.outputs.rc == '3'
+        run: echo "::notice title=uptime::A Cloudflare challenge answered instead of the site, so this run can't tell whether it is up. No issue was opened or closed."
+
+      - name: The check itself broke
+        if: steps.verify.outputs.rc != '0' && steps.verify.outputs.rc != '1' && steps.verify.outputs.rc != '3'
+        env:
+          RC: ${{ steps.verify.outputs.rc }}
+        run: |
+          echo "::error::verify-site.sh exited $RC, which is neither up nor down; this run says nothing about the site"
+          exit 1
