@@ -5,6 +5,14 @@ import sitemap from '@astrojs/sitemap';
 // src/site.json is the one place the site's address lives. Canonical links,
 // the sitemap, robots.txt, the RSS feed and the share tags all read it.
 const site = JSON.parse(readFileSync(new URL('./src/site.json', import.meta.url), 'utf8'));
+let https = false;
+try {
+  https = new URL(site.url).protocol === 'https:';
+} catch {}
+if (!https) {
+  // Without it every canonical link would be wrong; stop here and say why.
+  throw new Error(`src/site.json: "url" must be the site's https:// address, like "https://example.com" (found ${JSON.stringify(site.url)})`);
+}
 
 export default defineConfig({
   site: site.url,
