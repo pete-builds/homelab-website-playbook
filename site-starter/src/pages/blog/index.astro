@@ -1,0 +1,28 @@
+---
+import Base from '../../layouts/Base.astro';
+import site from '../../site.json';
+import { publishedPosts, isoDate, showDate } from '../../lib/posts.js';
+
+const posts = await publishedPosts();
+---
+<Base title={`Blog | ${site.title}`} description={`Notes and posts from ${site.title}, newest first. Follow along with the RSS feed.`}>
+  <section class="section">
+    <div class="wrap narrow">
+      <h1>Blog</h1>
+      {posts.length === 0 && <p class="lede">Nothing here yet.</p>}
+      <ol class="post-list">
+        {posts.map((post) => (
+          <li>
+            <p class="eyebrow">
+              <time datetime={isoDate(post.data.date)}>{showDate(post.data.date)}</time>
+              {post.data.draft && <span> · draft, not published</span>}
+            </p>
+            <h2><a href={`/blog/${post.id}/`}>{post.data.title}</a></h2>
+            <p class="muted">{post.data.description}</p>
+          </li>
+        ))}
+      </ol>
+      <p><a href="/rss.xml">RSS feed</a></p>
+    </div>
+  </section>
+</Base>
