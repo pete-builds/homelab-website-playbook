@@ -8,6 +8,8 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 command -v docker >/dev/null 2>&1 || { echo "SKIP: docker not available"; exit 0; }
 
+# CI runners have no git identity; new-site.sh commits, so give it one.
+export GIT_AUTHOR_NAME=e2e GIT_AUTHOR_EMAIL=e2e@example.com GIT_COMMITTER_NAME=e2e GIT_COMMITTER_EMAIL=e2e@example.com
 work="$(mktemp -d)"
 port=18181
 name="e2e$$"

@@ -21,6 +21,9 @@ done
 load_config
 require_vars SITE_NAME DOMAIN SITE_PORT SITE_MARKER SITE_DIR
 need_cmd git
+git var GIT_AUTHOR_IDENT >/dev/null 2>&1 || die "git doesn't know who you are yet. Run:
+  git config --global user.name  \"Your Name\"
+  git config --global user.email \"you@example.com\""
 SITE_TITLE="${SITE_TITLE:-$DOMAIN}"
 SITE_DESCRIPTION="${SITE_DESCRIPTION:-$SITE_TITLE}"
 export SITE_NAME DOMAIN SITE_PORT SITE_MARKER SITE_TITLE SITE_DESCRIPTION
