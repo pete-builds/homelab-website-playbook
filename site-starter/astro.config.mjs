@@ -1,8 +1,13 @@
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'astro/config';
 import sitemap from '@astrojs/sitemap';
 
+// src/site.json is the one place the site's address lives. Canonical links,
+// the sitemap, robots.txt, the RSS feed and the share tags all read it.
+const site = JSON.parse(readFileSync(new URL('./src/site.json', import.meta.url), 'utf8'));
+
 export default defineConfig({
-  site: 'https://{{DOMAIN}}',
+  site: site.url,
   output: 'static',
   integrations: [sitemap()],
   build: {

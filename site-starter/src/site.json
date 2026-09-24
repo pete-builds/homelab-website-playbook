@@ -1,5 +1,23 @@
 {
   "title": "{{SITE_TITLE}}",
   "description": "{{SITE_DESCRIPTION}}",
-  "marker": "{{SITE_MARKER}}"
+  "marker": "{{SITE_MARKER}}",
+  "url": "https://{{DOMAIN}}",
+  "image": "",
+  "author": "",
+  "nav": [
+    {
+      "label": "About",
+      "href": "/#about"
+    },
+    {
+      "label": "Work",
+      "href": "/#work"
+    },
+    {
+      "label": "Get in touch",
+      "href": "/#contact",
+      "button": true
+    }
+  ]
 }
