@@ -16,4 +16,12 @@ export default defineConfig({
     assets: 'assets',
     format: 'directory',
   },
+  vite: {
+    build: {
+      // Never inline a small script or asset into the HTML. An inlined
+      // <script> works in `astro dev` (no CSP there) and is silently blocked
+      // in production, where the CSP allows scripts from this site's files only.
+      assetsInlineLimit: 0,
+    },
+  },
 });
