@@ -3,27 +3,40 @@
 #
 # WHY A SEPARATE COMPOSE PROJECT, NOT A SERVICE IN THE SITE'S STACK
 #   1. The site starts whether or not a tunnel token exists. A sidecar that
-#      requires the token would let a missing .env take the site down too.
+#      requires the token would let a missing token take the site down too.
 #   2. A deploy that goes wrong in the site's directory can't touch the tunnel.
 #
-# The tunnel only dials OUT to Cloudflare. It publishes no port and listens on
-# nothing, which is why the firewall can deny all inbound traffic.
-# Host networking is how it reaches the site on the server's own
-# 127.0.0.1:{{SITE_PORT}}. Plain HTTP on that hop is correct: it never leaves
-# the machine. Cloudflare terminates HTTPS at its edge.
+# The tunnel only dials OUT to Cloudflare, which is why the firewall can deny
+# all inbound traffic. Host networking is how it reaches the site on the
+# server's own 127.0.0.1:{{SITE_PORT}}. Plain HTTP on that hop is correct: it
+# never leaves the machine. Cloudflare terminates HTTPS at its edge.
+#
+# THE TOKEN IS A FILE, NOT AN ENVIRONMENT VARIABLE. An env var shows up in
+# `docker inspect` and `docker compose config`, the first two commands anyone
+# (or any agent) runs when the tunnel is down. The file is mode 600 and owned
+# by your admin user, so the container runs as that user to read it.
+#
+# METRICS ON LOOPBACK. In a container, cloudflared's metrics listener binds
+# 0.0.0.0 by default, and with host networking that's a port on your LAN.
+# Pinned to 127.0.0.1, it also gives the watch a readiness check: /ready
+# answers 200 once the connector has a live connection to Cloudflare.
 #
 # The version is pinned. The weekly refresh tells you when a newer one is out;
-# bump the tag here, then: docker compose pull && docker compose up -d
+# update with scripts/server/update-tunnel.sh (or ./playbook server tunnel-update),
+# which rolls back by itself if the new version doesn't connect.
 
 services:
   cloudflared:
     image: cloudflare/cloudflared:{{CLOUDFLARED_VERSION}}
     container_name: cloudflared-{{SITE_NAME}}
     restart: unless-stopped
-    command: tunnel --no-autoupdate run
+    user: '{{ADMIN_UID}}:{{ADMIN_GID}}'
+    command: tunnel --no-autoupdate --metrics 127.0.0.1:{{TUNNEL_METRICS_PORT}} run
     network_mode: host
     environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set it in .env beside this file}
+      TUNNEL_TOKEN_FILE: /etc/cloudflared/token
+    volumes:
+      - ./token:/etc/cloudflared/token:ro
     read_only: true
     cap_drop: [ALL]
     security_opt:
