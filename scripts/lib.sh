@@ -53,7 +53,8 @@ load_config() {
   # shellcheck disable=SC1090
   . "$cfg"
   PLAYBOOK_ROOT="$here"
-  export PLAYBOOK_ROOT
+  PLAYBOOK_ENV_FILE="$cfg"
+  export PLAYBOOK_ROOT PLAYBOOK_ENV_FILE
 }
 
 require_vars() {
@@ -117,12 +118,122 @@ write_secret_file() {
 # ssh_server <args...>: ssh to SERVER_HOST, honoring SSH_PORT when it isn't 22.
 # Every laptop-side script goes through this, so changing the port in Phase 2
 # can't silently break deploys.
+# Logs in as ADMIN_USER: with SERVER_HOST set to a bare IP, plain `ssh <ip>`
+# would try your LAPTOP's username, which is rarely the server's.
+# One shared connection (ControlMaster) for a couple of minutes: a password is
+# asked once, not once per step, and a burst of steps doesn't trip the
+# firewall's SSH rate limit or fail2ban. Anything that must prove a FRESH
+# login passes -o ControlPath=none in SSH_EXTRA_OPTS (ssh uses the first
+# value it sees, and SSH_EXTRA_OPTS comes first).
+# accept-new: trust a server's key the first time, the way people type "yes"
+# anyway, but still refuse a key that CHANGED.
 # Extra ssh options go in SSH_EXTRA_OPTS (options must come before the host).
 ssh_server() {
-  local port_opt=""
-  if [ -n "${SSH_PORT:-}" ] && [ "$SSH_PORT" != "22" ]; then port_opt="-p $SSH_PORT"; fi
+  local opts=""
+  if [ -n "${SSH_PORT:-}" ] && [ "$SSH_PORT" != "22" ]; then opts="-p $SSH_PORT"; fi
+  case "$SERVER_HOST" in
+    *@*) ;;
+    *) [ -z "${ADMIN_USER:-}" ] || opts="$opts -l $ADMIN_USER" ;;
+  esac
+  opts="$opts -o StrictHostKeyChecking=accept-new"
+  # A socket path of 104+ bytes makes ssh refuse to run at all (no fallback),
+  # and %C alone is 40, so only when the home directory is short enough.
+  if [ -d "$HOME/.ssh" ] && [ "${#HOME}" -lt 50 ]; then
+    opts="$opts -o ControlMaster=auto -o ControlPath=$HOME/.ssh/cm-hlp-%C -o ControlPersist=120"
+  fi
   # shellcheck disable=SC2086
-  ssh $port_opt ${SSH_EXTRA_OPTS:-} "$SERVER_HOST" "$@"
+  ssh ${SSH_EXTRA_OPTS:-} $opts "$SERVER_HOST" "$@"
+}
+
+# ssh_session_peers: the addresses that hold SSH sessions to this machine open,
+# one per line. SSH_CLIENT names the current one, but `sudo` wipes it (env_reset),
+# so under sudo ask the kernel instead: every established TCP connection whose
+# LOCAL port is one sshd listens on (from sshd -T, plus 22 and SSH_PORT, since a
+# session can predate a port change). Matching on ports, not process names:
+# which process owns a socket isn't always visible, even to root.
+# Loopback peers are left out; they can't be locked out.
+ssh_session_peers() {
+  local p
+  if [ -n "${SSH_CLIENT:-}" ]; then
+    printf '%s\n' "${SSH_CLIENT%% *}"
+    return
+  fi
+  command -v ss >/dev/null 2>&1 || return 0
+  for p in $( { sshd -T 2>/dev/null | awk '$1 == "port" {print $2}'; echo 22; echo "${SSH_PORT:-22}"; } | sort -u); do
+    # Columns under a state filter: Recv-Q Send-Q Local:Port Peer:Port.
+    ss -Htn state established "( sport = :$p )" 2>/dev/null | awk '{print $4}'
+  done | sed -e 's/:[0-9]*$//' -e 's/^\[//' -e 's/\]$//' -e 's/%.*//' -e 's/^::ffff://' \
+    | grep -vE '^(127\.|::1$)' | sort -u || true
+}
+
+# run_quiet <label> <command...>: run it with the output going to a log file.
+# Success prints one line. Failure prints the last 30 lines and where the full
+# log is. The command's own chatter (apt, docker build, npm) never floods a
+# terminal, or an agent's context. VERBOSE=1 streams everything instead.
+run_quiet() {
+  local label="$1" log dir rc
+  shift
+  if [ "${VERBOSE:-0}" = "1" ]; then
+    "$@" && { ok "$label"; return 0; }
+    rc=$?; fail "$label (exit $rc)"; return "$rc"
+  fi
+  if [ "$(id -u)" -eq 0 ]; then dir=/var/log/homelab-playbook
+  else dir="${XDG_STATE_HOME:-$HOME/.local/state}/homelab-playbook/logs"; fi
+  mkdir -p "$dir" 2>/dev/null || dir="${TMPDIR:-/tmp}"
+  log="$dir/$(date +%Y%m%d-%H%M%S)-$(printf '%s' "$label" | tr -c 'A-Za-z0-9' '-' | cut -c1-40).log"
+  if ( umask 077; "$@" ) >"$log" 2>&1; then
+    ok "$label"
+    return 0
+  else
+    rc=$?
+  fi
+  fail "$label (exit $rc). Last lines:"
+  tail -n 30 "$log" | sed 's/^/      /' >&2
+  printf '      full log: %s\n' "$log" >&2
+  return "$rc"
+}
+
+# validate_config: check every playbook.env value that's set, before anything
+# uses it. Prints one FAIL line per problem and returns non-zero if any.
+# Empty values are left to require_vars, so each phase can ask only for what
+# it needs.
+validate_config() {
+  local bad=0 v
+  _bad() { fail "playbook.env: $*"; bad=1; }
+  case "${SITE_NAME:-x}" in *[!a-z0-9-]*|-*) _bad "SITE_NAME '$SITE_NAME': lowercase letters, digits and dashes only" ;; esac
+  case "${DOMAIN:-example.com}" in
+    *[!a-z0-9.-]*|.*|*.|*..*|*.-*|*-.*) _bad "DOMAIN '$DOMAIN' should look like example.com: lowercase, no https://, no slash" ;;
+    *.*) ;;
+    *) _bad "DOMAIN '$DOMAIN' needs a dot, like example.com" ;;
+  esac
+  for v in SITE_PORT SSH_PORT; do
+    eval "val=\${$v:-}"
+    # shellcheck disable=SC2154
+    [ -z "$val" ] && continue
+    case "$val" in *[!0-9]*) _bad "$v '$val' must be a number"; continue ;; esac
+    { [ "$val" -ge 1 ] && [ "$val" -le 65535 ]; } || _bad "$v '$val' must be between 1 and 65535"
+  done
+  if [ -n "${SITE_PORT:-}" ] && [ "${SITE_PORT:-0}" = "${SSH_PORT:-22}" ]; then _bad "SITE_PORT and SSH_PORT can't be the same"; fi
+  case "${SITE_MARKER:-x}" in *[!A-Za-z0-9\ .,!?-]*) _bad "SITE_MARKER: letters, digits, spaces and . , ! ? - only" ;; esac
+  case "${ADMIN_USER:-x}" in *[!a-z0-9_-]*|[0-9-]*) _bad "ADMIN_USER '$ADMIN_USER': a Linux username, lowercase, starting with a letter" ;; root) _bad "ADMIN_USER can't be root" ;; esac
+  case "${REBOOT_TIME:-04:30}" in [01][0-9]:[0-5][0-9]|2[0-3]:[0-5][0-9]) ;; *) _bad "REBOOT_TIME '$REBOOT_TIME' must look like 04:30 (24-hour)" ;; esac
+  case "${AUTO_DEPLOY:-no}" in yes|no) ;; *) _bad "AUTO_DEPLOY must be yes or no" ;; esac
+  if [ -n "${LAN_CIDR:-}" ]; then
+    python3 -c 'import ipaddress,sys; ipaddress.ip_network(sys.argv[1], strict=False)' "$LAN_CIDR" 2>/dev/null \
+      || _bad "LAN_CIDR '$LAN_CIDR' is not a network like 192.168.1.0/24"
+  fi
+  case "${SITE_REPO:-https://x}" in
+    https://*|git@*|ssh://*) ;;
+    *) _bad "SITE_REPO '$SITE_REPO' should be the https:// (or git@) URL of your site's repo" ;;
+  esac
+  case "${SITE_REPO:-}" in */you/*) _bad "SITE_REPO still has the example 'you/'; use your own repo URL" ;; esac
+  if [ -n "${CF_ACCOUNT_ID:-}" ]; then
+    case "$CF_ACCOUNT_ID" in
+      *[!0-9a-f]*) _bad "CF_ACCOUNT_ID looks wrong: 32 lowercase hex characters from the dashboard sidebar" ;;
+      *) [ "${#CF_ACCOUNT_ID}" -eq 32 ] || _bad "CF_ACCOUNT_ID is ${#CF_ACCOUNT_ID} characters; the Account ID is 32" ;;
+    esac
+  fi
+  [ "$bad" -eq 0 ]
 }
 
 # ip_in_cidr <ip> <cidr>: exit 0 when the address is inside the network.
@@ -142,6 +253,13 @@ PY
 # '0.0.0.0:8080:80' is reachable from the network even when ufw says no.
 check_compose_ports() {
   local file="$1" bad
+  # Flow style (ports: ["8080:80"]) hides the list on the ports: line itself,
+  # where the item check below never looks. One "- " line per port, please.
+  bad=$(grep -E '^[[:space:]]*ports:[[:space:]]*[^[:space:]#]' "$file" || true)
+  if [ -n "$bad" ]; then
+    printf '%s   (write each port on its own "- 127.0.0.1:..." line)\n' "$bad" >&2
+    return 1
+  fi
   bad=$(sed -n '/^[[:space:]]*ports:/,/^[[:space:]]*[a-z_]*:[[:space:]]*$/p' "$file" \
     | grep -E '^[[:space:]]*-' | grep -vE "^[[:space:]]*-[[:space:]]*['\"]?127\.0\.0\.1:" || true)
   if [ -n "$bad" ]; then
