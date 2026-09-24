@@ -20,7 +20,7 @@ if [ -f "${PLAYBOOK_ENV:-$here/playbook.env}" ]; then
   ok "playbook.env present"
   load_config
   if [ -n "${SERVER_HOST:-}" ]; then
-    if ssh -o BatchMode=yes -o ConnectTimeout=5 "$SERVER_HOST" true 2>/dev/null; then ok "ssh $SERVER_HOST works with your key"
+    if SSH_EXTRA_OPTS="-o BatchMode=yes -o ConnectTimeout=5" ssh_server true 2>/dev/null; then ok "ssh $SERVER_HOST works with your key"
     else warn "ssh $SERVER_HOST doesn't work yet (fine before Phase 1)"; fi
   fi
 else

@@ -9,7 +9,7 @@
 #   on anything  a one-line message to your phone (see NOTIFY_URL below)
 #
 # Run as root ON THE SERVER:  sudo ./scripts/server/60-auto-updates.sh
-# Optional: NOTIFY_URL=https://ntfy.sh/<random-topic> sudo -E ./scripts/server/60-auto-updates.sh
+# It asks for your notification URL (hidden, so it stays out of shell history).
 set -euo pipefail
 # shellcheck source=../lib.sh
 . "$(dirname "$0")/../lib.sh"
@@ -26,6 +26,13 @@ install -m 755 "$T/homelab-reboot-if-needed" /usr/local/sbin/homelab-reboot-if-n
 install -m 755 "$T/homelab-refresh-containers" /usr/local/sbin/homelab-refresh-containers
 ok "installed helpers in /usr/local/sbin"
 
+if [ -z "${NOTIFY_URL:-}" ] && [ ! -s /etc/homelab-playbook/notify.env ] && [ -t 0 ]; then
+  printf 'Notification URL (ntfy topic or Discord webhook; Enter to skip, input hidden): '
+  stty -echo 2>/dev/null || true
+  IFS= read -r NOTIFY_URL || NOTIFY_URL=''
+  stty echo 2>/dev/null || true
+  printf '\n'
+fi
 if [ -n "${NOTIFY_URL:-}" ]; then
   write_secret_file /etc/homelab-playbook/notify.env "NOTIFY_URL=$NOTIFY_URL"
   ok "wrote /etc/homelab-playbook/notify.env (600)"

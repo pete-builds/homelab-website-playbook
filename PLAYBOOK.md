@@ -45,8 +45,9 @@ No SSH key yet? `ssh-keygen -t ed25519` and accept the defaults.
 **Hardware.** Any 64-bit machine with 4 GB of RAM or more: an old laptop, a used mini PC,
 a Raspberry Pi 4/5. Wired Ethernet beats Wi-Fi. It will run 24/7 on a few watts.
 
-**Install** [Ubuntu Server 24.04 LTS](https://ubuntu.com/download/server) (Debian 13,
-Fedora and Rocky/Alma also work). During the install:
+**Install** [Ubuntu Server 24.04 LTS](https://ubuntu.com/download/server). Debian 13 is
+tested just as thoroughly. Fedora and Rocky/Alma are supported by the scripts (they enable
+EPEL for fail2ban) but aren't tested in CI yet. During the install:
 - create your user. That name goes in `ADMIN_USER`.
 - tick **Install OpenSSH server**, and **Import SSH key** from GitHub if offered.
 - no desktop. Headless means no monitor needed after this.
@@ -58,9 +59,10 @@ goes in `SERVER_HOST`. Nicer still, add to `~/.ssh/config` on your laptop:
 Host homelab
     HostName 192.168.1.50
     User admin
+    Port 22
 ```
 
-and set `SERVER_HOST=homelab`.
+and set `SERVER_HOST=homelab`. If you change `SSH_PORT` later, change `Port` here too.
 
 **Get the playbook onto it:**
 
@@ -82,7 +84,7 @@ sudo ./scripts/server/00-bootstrap.sh
 It installs base packages, sets the timezone, and makes sure your user has your key and
 sudo. Safe to re-run.
 
-**Check:** from the laptop, `ssh homelab 'sudo -v && echo ok'` asks for your password and prints `ok`.
+**Check:** from the laptop, `ssh -t homelab 'sudo -v && echo ok'` asks for your password and prints `ok`.
 
 ## Phase 2: Harden it
 
@@ -94,13 +96,18 @@ sudo ./scripts/server/20-firewall.sh       # deny everything inbound except SSH
 sudo ./scripts/server/30-fail2ban.sh       # ban password-guessers
 sudo ./scripts/server/40-kernel.sh         # network hardening
 sudo ./scripts/server/50-docker.sh         # Docker, from Docker's signed repo
-NOTIFY_URL=https://ntfy.sh/<pick-a-long-random-topic> sudo -E ./scripts/server/60-auto-updates.sh
+sudo ./scripts/server/60-auto-updates.sh     # asks for your notification URL, hidden
 ```
 
-**10-harden-ssh has a safety net.** Before it runs, open a *second* terminal. After it
-restarts SSH, log in from that second terminal. If it works, type `yes` in the first. If
-you don't within 5 minutes, it undoes itself. It also refuses to run if your user has no
-key, because turning passwords off then would lock you out.
+**10-harden-ssh has a safety net.** Run it in your own terminal (not through an agent).
+Before it runs, open a *second* terminal. After it restarts SSH, log in from that second
+terminal. If it works, type `yes` in the first. If you don't within 5 minutes, a timer
+undoes the change, even if your first session dropped. It also refuses to run if your
+user has no key, because turning passwords off then would lock you out.
+
+**20-firewall and `LAN_CIDR`.** If you set `LAN_CIDR`, SSH is accepted only from that
+network. The script checks the address you're connected from and refuses a value that
+would lock you out. Not sure what your network is? Leave it empty.
 
 **60-auto-updates** sets up the hands-off part:
 
@@ -111,17 +118,19 @@ key, because turning passwords off then would lock you out.
 | Sundays 05:00 | rebuilds your site on a fresh nginx image, checks it's healthy, tells you if a newer cloudflared exists |
 | after any reboot | "back up after boot" |
 
-`NOTIFY_URL` is where those messages go. [ntfy](https://ntfy.sh) is free: install the
-app, subscribe to a long random topic name, use that URL. A Discord webhook URL works too.
+The script asks where those messages should go. [ntfy](https://ntfy.sh) is free: install
+the app, subscribe to a long random topic name (anyone who guesses it can read it), and
+paste `https://ntfy.sh/<topic>`. A Discord webhook URL works too.
 Email doesn't: many ISPs block outbound mail, and it fails without a word.
 
 **Check:**
 ```sh
 sudo ./scripts/server/audit.sh        # on the server: no FAIL lines
+                                      # from the laptop: ssh -t homelab 'sudo ~/homelab-website-playbook/scripts/server/audit.sh' 
 ```
 and prove it from the laptop:
 ```sh
-ssh -o PubkeyAuthentication=no homelab     # must say: Permission denied
+ssh -o PubkeyAuthentication=no homelab     # must say: Permission denied (publickey)
 nc -zv -w 3 <server-ip> 80                 # must fail: nothing is listening
 ```
 
@@ -188,8 +197,8 @@ cd ~/sites/mysite                                  # whatever SITE_DIR is
 npm install && npm run dev                         # http://localhost:4322
 ```
 
-Edit `src/pages/index.astro`. Keep your `SITE_MARKER` sentence somewhere on the home
-page: the live checks look for it.
+Edit `src/pages/index.astro`. Your title, description and `SITE_MARKER` sentence live in
+`src/site.json`. Keep the marker on the home page: the live checks look for it.
 
 **Themes** are described in [`themes/README.md`](themes/README.md), including how to make
 your own from any design system on [Refero Styles](https://styles.refero.design)
@@ -265,7 +274,7 @@ The server patches and reboots itself and messages you when it does. Once in a w
 (or ask the `sentinel` agent: *"is everything ok?"*):
 
 ```sh
-ssh homelab 'sudo ~/homelab-website-playbook/scripts/server/audit.sh'
+ssh -t homelab 'sudo ~/homelab-website-playbook/scripts/server/audit.sh'
 ./scripts/verify-site.sh https://<domain> "<your SITE_MARKER>"
 ./scripts/local/cf-tunnel.py status
 ```

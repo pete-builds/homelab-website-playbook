@@ -1,11 +1,18 @@
 {
   "permissions": {
+    "ask": [
+      "mcp__cloudflare-api__execute"
+    ],
     "deny": [
       "Read(~/.config/homelab-playbook/**)",
       "Read(**/.env)",
       "Read(**/*.token)",
-      "Bash(cat ~/.config/homelab-playbook/*)",
-      "Bash(cat */.env)"
+      "Bash(cat:*homelab-playbook*)",
+      "Bash(head:*homelab-playbook*)",
+      "Bash(tail:*homelab-playbook*)",
+      "Bash(less:*homelab-playbook*)",
+      "Bash(cat:*.env*)",
+      "Bash(cat:*.token*)"
     ]
   }
 }

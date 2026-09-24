@@ -20,6 +20,19 @@ load_config
 require_vars SSH_PORT ADMIN_USER
 detect_os
 
+# The one mistake that locks you out: a LAN_CIDR that doesn't contain the
+# address you're connected from. ufw keeps your current session alive, but
+# every NEW login would be refused. Check before touching anything.
+if [ -n "${LAN_CIDR:-}" ]; then
+  me="${SSH_CLIENT%% *}"
+  if [ -n "$me" ] && ! ip_in_cidr "$me" "$LAN_CIDR"; then
+    die "you're connected from $me, which is OUTSIDE LAN_CIDR=$LAN_CIDR. This would lock you out.
+       Fix LAN_CIDR in playbook.env (or leave it empty), then re-run."
+  fi
+  [ -n "$me" ] && ok "your session ($me) is inside $LAN_CIDR"
+  [ -n "$me" ] || warn "not running over SSH, so I can't check LAN_CIDR against your laptop. Be sure it includes it."
+fi
+
 if [ "$OS_FAMILY" = debian ]; then
   need_cmd ufw
   ufw --force reset >/dev/null

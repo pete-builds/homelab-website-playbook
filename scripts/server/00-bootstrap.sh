@@ -20,8 +20,13 @@ if [ "$OS_FAMILY" = debian ]; then
   apt-get install -y -q curl ca-certificates git sudo openssh-server ufw fail2ban \
     unattended-upgrades apt-listchanges needrestart python3 rsync
 else
+  # fail2ban lives in EPEL on Alma/Rocky/RHEL (Fedora ships it directly).
+  # shellcheck disable=SC1091
+  if [ "$(. /etc/os-release; echo "$ID")" != fedora ]; then
+    dnf install -y -q epel-release || die "couldn't enable EPEL. On RHEL proper: sudo subscription-manager repos --enable codeready-builder-for-rhel-9-\$(arch)-rpms && sudo dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm"
+  fi
   dnf install -y -q curl ca-certificates git sudo openssh-server firewalld fail2ban \
-    dnf-automatic python3 rsync
+    dnf-automatic python3 rsync policycoreutils-python-utils
   systemctl enable --now firewalld
 fi
 ok "packages installed"

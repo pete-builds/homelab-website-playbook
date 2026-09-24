@@ -13,7 +13,9 @@ for dir in /srv/sites/*/; do
   [ -f "$dir/docker-compose.yml" ] || continue
   name=$(basename "$dir")
   port=$(sed -n 's/.*127\.0\.0\.1:\([0-9]*\):80.*/\1/p' "$dir/docker-compose.yml" | head -n 1)
-  if ! (cd "$dir" && docker compose build --pull -q && docker compose up -d); then
+  # Keep the build id the deploy baked in, so "which build is live" stays true.
+  build_id=$(git -C "$dir" rev-parse --short=12 HEAD 2>/dev/null || echo dev)
+  if ! (cd "$dir" && BUILD_ID="$build_id" docker compose build --pull -q && BUILD_ID="$build_id" docker compose up -d); then
     /usr/local/sbin/homelab-notify "weekly rebuild FAILED for $name; the previous container is still running"
     rc=1; continue
   fi

@@ -1,4 +1,5 @@
 ---
+import site from '../site.json';
 import '../styles/theme.css';
 import '../styles/base.css';
 
@@ -6,7 +7,7 @@ interface Props {
   title: string;
   description?: string;
 }
-const { title, description = '{{SITE_DESCRIPTION}}' } = Astro.props;
+const { title, description = site.description } = Astro.props;
 // Baked in at build time by deploy.sh / the Dockerfile. The deploy verifies the
 // LIVE page carries this exact value, which proves the new build is the one
 // being served (and not an old one cached somewhere).
@@ -32,7 +33,7 @@ const canonical = new URL(Astro.url.pathname, Astro.site);
     <a class="skip" href="#main">Skip to content</a>
     <header class="site-header">
       <div class="wrap row">
-        <a class="brand" href="/">{{SITE_TITLE}}</a>
+        <a class="brand" href="/">{site.title}</a>
         <nav aria-label="Main">
           <a href="/#about">About</a>
           <a href="/#work">Work</a>
@@ -45,7 +46,7 @@ const canonical = new URL(Astro.url.pathname, Astro.site);
     </main>
     <footer class="site-footer">
       <div class="wrap row">
-        <span>© {new Date().getFullYear()} {{SITE_TITLE}}</span>
+        <span>© {new Date().getFullYear()} {site.title}</span>
         <span class="muted">Self-hosted. Served from a server at home, through a Cloudflare tunnel.</span>
       </div>
     </footer>

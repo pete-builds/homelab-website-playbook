@@ -47,6 +47,10 @@ Registrar API is in beta.
 7. Tell them to click the registrant verification email today. Unverified domains get
    suspended by ICANN within about 15 days.
 
+This repo's `.claude/settings.json` makes every `cloudflare-api` `execute` call ask for
+approval, because the same tool checks prices and buys. Never suggest the person
+"always allow" it.
+
 A confirmation is for one domain, once. A new name or a second attempt needs a new
 confirmation.
 

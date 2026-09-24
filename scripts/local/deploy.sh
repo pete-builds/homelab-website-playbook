@@ -16,6 +16,7 @@ set -euo pipefail
 
 load_config
 require_vars SERVER_HOST SITE_NAME SITE_DIR DOMAIN SITE_PORT
+SSH_PORT="${SSH_PORT:-22}"
 need_cmd git ssh npm curl
 
 site_dir="${SITE_DIR/#\~/$HOME}"
@@ -49,12 +50,14 @@ ok "pushed $sha"
 log "Rebuilding on $SERVER_HOST"
 # Paths are absolute: a ~ inside an ssh command string expands on the wrong machine.
 # shellcheck disable=SC2087
-ssh "$SERVER_HOST" bash -s -- "$SITE_NAME" "$SITE_PORT" "$sha" <<'REMOTE'
+ssh_server bash -s -- "$SITE_NAME" "$SITE_PORT" "$sha" <<'REMOTE'
 set -euo pipefail
 site=$1; port=$2; want=$3
 cd "/srv/sites/$site"
-git checkout -q main 2>/dev/null || true
+# Record what is RUNNING (after a rollback that's a detached older commit, not
+# main's tip), so a later rollback can never restore a build that was rejected.
 prev=$(git rev-parse --short=12 HEAD)
+git checkout -q main
 git fetch -q origin
 git merge --ff-only -q origin/main || { echo "server checkout has diverged from origin; fix it by hand" >&2; exit 1; }
 now=$(git rev-parse --short=12 HEAD)

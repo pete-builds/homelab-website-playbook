@@ -22,6 +22,7 @@ esac
 exit 0
 EOF
 printf '#!/bin/sh\necho "timedatectl $*" >> /tmp/systemctl.log\n' > /stub/timedatectl
+printf '#!/bin/sh\necho "systemd-run $*" >> /tmp/systemctl.log\n' > /stub/systemd-run
 chmod +x /stub/*
 export PATH="/stub:$PATH"
 
@@ -48,10 +49,18 @@ grep -q TESTKEYONLYFORCI /home/friend/.ssh/authorized_keys && t_ok "key installe
 run ./scripts/server/00-bootstrap.sh
 [ "$(grep -c TESTKEYONLYFORCI /home/friend/.ssh/authorized_keys)" = 1 ] && t_ok "re-run did not duplicate the key" || t_bad "key duplicated on re-run"
 
+# Without a terminal (and without ASSUME_YES) it must arm the revert timer, then
+# revert and fail, never leave an unconfirmed change in place.
+if ./scripts/server/10-harden-ssh.sh </dev/null >/tmp/h.log 2>&1; then t_bad "no-tty harden exited 0"; else t_ok "no-tty harden refuses to keep the change"; fi
+grep -q 'systemd-run.*--on-active=300' /tmp/systemctl.log && t_ok "revert timer armed before sshd restart" || t_bad "revert timer not armed"
+[ ! -f /etc/ssh/sshd_config.d/00-homelab-playbook.conf ] && t_ok "unconfirmed drop-in was reverted" || t_bad "unconfirmed drop-in left in place"
 ASSUME_YES=1 run ./scripts/server/10-harden-ssh.sh
 sshd_eff=$(sshd -T); grep -qx 'passwordauthentication no' <<<"$sshd_eff" && t_ok "sshd effective: no passwords" || t_bad "passwords still allowed"
 
-run ./scripts/server/20-firewall.sh
+# A LAN_CIDR that excludes the current SSH session must be refused, before any change.
+if SSH_CLIENT="10.9.9.9 50000 22" ./scripts/server/20-firewall.sh >/tmp/fw.log 2>&1; then t_bad "firewall accepted a LAN_CIDR that excludes the session"
+else grep -q 'OUTSIDE LAN_CIDR' /tmp/fw.log && t_ok "firewall refuses a LAN_CIDR that would lock you out" || { t_bad "firewall failed for another reason"; cat /tmp/fw.log; }; fi
+SSH_CLIENT="192.168.1.23 50000 22" run ./scripts/server/20-firewall.sh
 ufw_st=$(ufw status); grep -q 'Status: active' <<<"$ufw_st" && t_ok "ufw active" || t_bad "ufw not active"
 grep -q '192.168.1.0/24' <<<"$ufw_st" && t_ok "ssh restricted to LAN_CIDR" || t_bad "ssh rule missing LAN restriction"
 

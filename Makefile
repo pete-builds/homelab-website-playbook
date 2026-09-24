@@ -4,6 +4,7 @@ test: lint unit linux e2e
 lint:
 	shellcheck -S warning scripts/*.sh scripts/*/*.sh templates/updates/homelab-* tests/*.sh tests/linux/*.sh
 unit:
+	./tests/test-lib.sh
 	python3 tests/validate-skills.py
 	python3 tests/check-themes.py
 	python3 tests/test_cloudflare.py

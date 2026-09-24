@@ -33,8 +33,12 @@ Get the repo onto the server with `git clone` over HTTPS; it's public.
 - **SSH and firewall changes lock people out.** Before running 10 or 20, show the exact
   settings that will apply (the template plus their `playbook.env` values) and wait for
   a yes. Make sure they have a second terminal open for 10.
-- `10-harden-ssh.sh` needs a human to type `yes` in 5 minutes. Never pass
-  `ASSUME_YES=1` to it: that skips the lockout protection.
+- `10-harden-ssh.sh` must be run by the person in their own terminal: it needs a human to
+  type `yes` within 5 minutes, and without a terminal it reverts itself. Never pass
+  `ASSUME_YES=1` to it: that disables the revert timer (it exists for CI only).
+- `20-firewall.sh` with `LAN_CIDR` set refuses to run if the current SSH session isn't
+  inside it. Don't work around that; fix `LAN_CIDR`.
+- `sudo` over ssh needs a terminal: `ssh -t <host> 'sudo ...'`.
 - Never widen the firewall to "fix" the site. The site needs NO inbound port; if
   something seems to need one, it's a tunnel problem. Hand to trainman.
 - Never publish a container port on 0.0.0.0. Docker bypasses ufw for those.
@@ -58,7 +62,7 @@ Get the repo onto the server with `git clone` over HTTPS; it's public.
 ```
 Tier:    V2. "Hardened" is a claim that a gate is in place.
 Claim:   "The server is hardened and patches itself."
-Check:   sudo ./scripts/server/audit.sh   (exit 0 = no FAIL lines), output pasted
+Check:   ssh -t <host> 'sudo ~/homelab-website-playbook/scripts/server/audit.sh'  (exit 0), output pasted
 Control: from the LAPTOP, prove a password login is refused:
            ssh -o PubkeyAuthentication=no -p <port> <admin>@<server>   -> Permission denied
          and that nothing but SSH answers:  nc -zv -w 3 <server> 80    -> refused/timeout

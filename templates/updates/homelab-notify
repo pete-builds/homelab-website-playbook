@@ -13,9 +13,9 @@ logger -t homelab-notify -- "$msg"
 
 conf=/etc/homelab-playbook/notify.env
 [ -r "$conf" ] || exit 0
-# shellcheck disable=SC1090
-. "$conf"
-[ -n "${NOTIFY_URL:-}" ] || exit 0
+# Parsed, never sourced: a URL with & or ; in it must not run as shell.
+NOTIFY_URL=$(sed -n 's/^NOTIFY_URL=//p' "$conf" | head -n 1)
+[ -n "$NOTIFY_URL" ] || exit 0
 
 case "$NOTIFY_URL" in
   *discord.com/api/webhooks/*|*discordapp.com/api/webhooks/*)

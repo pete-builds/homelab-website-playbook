@@ -14,7 +14,7 @@ require_vars SERVER_HOST SITE_NAME SITE_PORT DOMAIN
 confirm "Roll $DOMAIN back to its previous deploy?" || die "cancelled"
 
 # shellcheck disable=SC2087
-target=$(ssh "$SERVER_HOST" bash -s -- "$SITE_NAME" "$SITE_PORT" <<'REMOTE'
+target=$(ssh_server bash -s -- "$SITE_NAME" "$SITE_PORT" <<'REMOTE'
 set -euo pipefail
 site=$1; port=$2
 cd "/srv/sites/$site"

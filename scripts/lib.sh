@@ -113,3 +113,40 @@ write_secret_file() {
   mode=$(stat -c '%a' "$path" 2>/dev/null || stat -f '%Lp' "$path")
   [ "$mode" = "600" ] || die "$path is mode $mode, expected 600"
 }
+
+# ssh_server <args...>: ssh to SERVER_HOST, honoring SSH_PORT when it isn't 22.
+# Every laptop-side script goes through this, so changing the port in Phase 2
+# can't silently break deploys.
+# Extra ssh options go in SSH_EXTRA_OPTS (options must come before the host).
+ssh_server() {
+  local port_opt=""
+  if [ -n "${SSH_PORT:-}" ] && [ "$SSH_PORT" != "22" ]; then port_opt="-p $SSH_PORT"; fi
+  # shellcheck disable=SC2086
+  ssh $port_opt ${SSH_EXTRA_OPTS:-} "$SERVER_HOST" "$@"
+}
+
+# ip_in_cidr <ip> <cidr>: exit 0 when the address is inside the network.
+ip_in_cidr() {
+  python3 - "$1" "$2" <<'PY'
+import ipaddress, sys
+try:
+    ok = ipaddress.ip_address(sys.argv[1]) in ipaddress.ip_network(sys.argv[2], strict=False)
+except ValueError:
+    ok = False
+sys.exit(0 if ok else 1)
+PY
+}
+
+# check_compose_ports <docker-compose.yml>: every published port must be bound
+# to 127.0.0.1. Docker writes its own firewall rules, so '8080:80' or
+# '0.0.0.0:8080:80' is reachable from the network even when ufw says no.
+check_compose_ports() {
+  local file="$1" bad
+  bad=$(sed -n '/^[[:space:]]*ports:/,/^[[:space:]]*[a-z_]*:[[:space:]]*$/p' "$file" \
+    | grep -E '^[[:space:]]*-' | grep -vE "^[[:space:]]*-[[:space:]]*['\"]?127\.0\.0\.1:" || true)
+  if [ -n "$bad" ]; then
+    printf '%s\n' "$bad" >&2
+    return 1
+  fi
+  grep -E '^[[:space:]]*ports:' "$file" >/dev/null
+}

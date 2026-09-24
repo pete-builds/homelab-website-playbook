@@ -134,6 +134,9 @@ def cmd_create(a, cfg):
         ensure_dns(zone, h, f"{t['id']}.cfargotunnel.com", a.replace_dns)
     path = save_token(acct, t["id"], site)
     host = cfg.get("SERVER_HOST", "<server>")
+    port = cfg.get("SSH_PORT", "22")
+    if port and port != "22":
+        host = f"-p {port} {host}"
     print(f"""
 Next, install the connector on the server (the token travels over SSH stdin,
 never as an argument):

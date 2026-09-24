@@ -1,0 +1,5 @@
+{
+  "title": "{{SITE_TITLE}}",
+  "description": "{{SITE_DESCRIPTION}}",
+  "marker": "{{SITE_MARKER}}"
+}

@@ -164,8 +164,24 @@ class DomainTests(Base):
         self.assertEqual(self.posted("/registrar/registrations"), [])
 
     def test_register_premium_refused(self):
+        rc, out = self.run_cli(DOMAIN, "register", "coffee.xyz")  # never reaches the prompt
+        self.assertNotEqual(rc, 0)
         rc, out = self.run_tty([DOMAIN, "register", "coffee.xyz"], "coffee.xyz")
         self.assertNotEqual(rc, 0)
+        self.assertIn("tier 'premium'", out)
+        self.assertEqual(self.posted("/registrar/registrations"), [])
+
+    def test_register_without_price_refused(self):
+        rc, out = self.run_tty([DOMAIN, "register", "noprice.dev"], "noprice.dev")
+        self.assertNotEqual(rc, 0)
+        self.assertIn("no usable price", out)
+        self.assertEqual(self.posted("/registrar/registrations"), [])
+
+    def test_register_already_owned_is_not_bought_again(self):
+        self.state.registrations["mine-already.dev"] = {"domain_name": "mine-already.dev", "status": "active"}
+        rc, out = self.run_tty([DOMAIN, "register", "mine-already.dev"], "mine-already.dev")
+        self.assertNotEqual(rc, 0)
+        self.assertIn("already registered", out)
         self.assertEqual(self.posted("/registrar/registrations"), [])
 
     def test_register_typed_name_buys_with_auto_renew(self):

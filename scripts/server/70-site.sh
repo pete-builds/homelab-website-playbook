@@ -27,8 +27,8 @@ fi
 ok "at $(git -C "$dir" log -1 --format='%h %s')"
 
 [ -f "$dir/docker-compose.yml" ] || die "$dir has no docker-compose.yml. Start from site-starter/ (scripts/local/new-site.sh)."
-grep -q "127.0.0.1:" "$dir/docker-compose.yml" \
-  || die "docker-compose.yml must publish on 127.0.0.1 only. Docker bypasses the firewall for 0.0.0.0 ports."
+check_compose_ports "$dir/docker-compose.yml" \
+  || die "every port in docker-compose.yml must be published on 127.0.0.1 (offending lines above). Docker bypasses the firewall for anything else."
 
 log "Building and starting (the build runs the site's own checks; a failing check fails the deploy)"
 ( cd "$dir" && SITE_PORT="$SITE_PORT" docker compose up -d --build )

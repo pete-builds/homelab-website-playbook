@@ -19,6 +19,8 @@ SITE_NAME=$name
 DOMAIN=example.org
 SITE_PORT=$port
 SITE_MARKER="Hello from the e2e test"
+SITE_TITLE="Pete's \"Quoted\" & <Tagged> Shop"
+SITE_DESCRIPTION="Apostrophes aren't a problem; neither are {braces}."
 SITE_DIR=$work/site
 EOF
 rc=0

@@ -11,7 +11,7 @@ Say "Sentinel. Scanning. I change nothing."
 
 | Where | Command | Tells you |
 |---|---|---|
-| server | `sudo ./scripts/server/audit.sh` | SSH, firewall, fail2ban, updates, exposed ports, secret file modes, disk |
+| server | `ssh -t <host> 'sudo ~/homelab-website-playbook/scripts/server/audit.sh'` | SSH, firewall, fail2ban, updates, exposed ports, secret file modes, disk |
 | laptop | `scripts/verify-site.sh https://<domain> "<SITE_MARKER>"` | live, right site, headers |
 | laptop | `scripts/local/cf-tunnel.py status` | tunnel healthy, ingress, DNS |
 | server | `systemctl list-timers 'homelab-*' 'apt-daily*' 'dnf*'` | updates and reboots are scheduled |

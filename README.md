@@ -13,8 +13,8 @@ that can walk you through it:
   [Refero Styles](https://styles.refero.design)
 - **nginx** serves it on the server's loopback, and a **Cloudflare Tunnel** carries it to the
   internet. Visitors never learn your home IP, and nothing listens for them at your house.
-- **one command deploys**, rolls back by itself if the new version is broken, and proves
-  the live site is the version you just shipped
+- **one command deploys**, rolls back to the last running version by itself if the new one
+  is broken, and proves the live site is the version you just shipped
 
 **Start here: [PLAYBOOK.md](PLAYBOOK.md).**
 
@@ -36,7 +36,7 @@ Open this folder in [Claude Code](https://claude.com/claude-code) and say **"set
 |---|---|
 | `morpheus` | runs the playbook with you, phase by phase |
 | `tank` | builds and hardens the server, sets up automatic updates |
-| `merovingian` | finds, prices and buys your domain (won't spend a cent until you type the name) |
+| `merovingian` | finds, prices and buys your domain (you type the exact name to buy; every Cloudflare call it makes asks you first) |
 | `trainman` | the tunnel and DNS; reads Cloudflare's error pages for you |
 | `link` | builds and designs the site, including themes from Refero |
 | `keeper` | deploys, verifies, rolls back |
@@ -64,7 +64,8 @@ tests/                      what CI runs on every push
 ## Requirements
 
 - A 64-bit computer for the server, 4 GB RAM or more, wired network preferred.
-  Ubuntu Server 24.04 LTS recommended; Debian 13, Fedora and Rocky/Alma supported.
+  Ubuntu Server 24.04 LTS recommended, Debian 13 equally tested. Fedora and Rocky/Alma
+  are supported by the scripts but not yet covered by CI.
 - A laptop with git, ssh, python3 and Node.js 22+ (macOS or Linux).
 - A Cloudflare account with a payment method for the domain (about $10/year for a .com).
 
@@ -75,7 +76,9 @@ CI runs on every push:
 - **Server configs**, validated by the real daemons (`sshd -T`, `fail2ban-client -t`,
   `apt-config`, `unattended-upgrade`) inside Ubuntu 24.04 and Debian 13. Each check comes
   with a deliberately broken config that has to fail.
-- **Every server script, run for real**, in both distros, followed by the audit.
+- **The server scripts run for real** in both distros (bootstrap, SSH, firewall, fail2ban,
+  kernel, auto-updates, with systemd stubbed), then the audit. Docker, site and tunnel
+  phases are covered by the site test below and by each phase's own live check.
 - **The Cloudflare scripts, against a mock API.** Tokens are never printed, DNS is
   proxied, reruns change nothing, and a purchase is refused without a typed confirmation.
 - **The starter site, in every theme.** Built in Docker, served, and verified with

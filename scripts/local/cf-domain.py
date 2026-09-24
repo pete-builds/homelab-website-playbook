@@ -80,13 +80,27 @@ def cmd_register(a):
         sys.exit(f"ERROR: {domain} is not registrable: {d.get('reason', 'unavailable')}")
     if d.get("tier") != "standard":
         sys.exit(f"ERROR: {domain} is tier '{d.get('tier')}'. This script only buys standard-priced domains.")
-    pr = d.get("pricing", {})
-    total = float(pr.get("registration_cost", "0")) * a.years
+    pr = d.get("pricing") or {}
+    try:
+        cost = float(pr["registration_cost"])
+        currency = pr["currency"]
+        renewal = pr["renewal_cost"]
+    except (KeyError, TypeError, ValueError):
+        sys.exit(f"ERROR: Cloudflare returned no usable price for {domain}. Not buying at an unknown price.")
+    if cost <= 0:
+        sys.exit(f"ERROR: price for {domain} came back as {cost}. Not buying.")
+    # Already ours? (e.g. a previous attempt timed out on our side but went through)
+    try:
+        call("GET", f"/accounts/{a.acct}/registrar/registrations/{domain}")
+        sys.exit(f"{domain} is already registered in this account. Nothing to buy: cf-domain.py status {domain}")
+    except CFError:
+        pass
+    total = cost * a.years
     print(f"\n  Domain     {domain}")
-    print(f"  Price      {pr.get('registration_cost')} {pr.get('currency')}/yr x {a.years} yr = {total:.2f} {pr.get('currency')}")
-    print(f"  Renews at  {pr.get('renewal_cost')} {pr.get('currency')}/yr (auto-renew ON)")
+    print(f"  Price      {cost:.2f} {currency}/yr x {a.years} yr = {total:.2f} {currency}")
+    print(f"  Renews at  {renewal} {currency}/yr (auto-renew ON)")
     print("  Charged to your Cloudflare account's default payment method. NON-REFUNDABLE.\n")
-    typed = input(f"Type the domain name to buy it, anything else cancels: ").strip().lower()
+    typed = input("Type the domain name to buy it, anything else cancels: ").strip().lower()
     if typed != domain:
         sys.exit("Cancelled. Nothing was bought.")
 

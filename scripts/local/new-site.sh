@@ -27,6 +27,8 @@ export SITE_NAME DOMAIN SITE_PORT SITE_MARKER SITE_TITLE SITE_DESCRIPTION
 
 case "$SITE_NAME" in *[!a-z0-9-]*|'') die "SITE_NAME must be lowercase letters, digits and dashes" ;; esac
 case "$SITE_PORT" in *[!0-9]*|'') die "SITE_PORT must be a number" ;; esac
+case "$DOMAIN" in *[!a-z0-9.-]*|''|.*|*.) die "DOMAIN must look like example.com (lowercase)" ;; esac
+case "$SITE_MARKER" in *[!A-Za-z0-9\ .,!?-]*) die "SITE_MARKER: letters, digits, spaces and . , ! ? - only (HTML escaping would change anything else, and the live check would never find it)" ;; esac
 
 if [ -f "$theme" ]; then theme_file="$theme"
 else theme_file="$PLAYBOOK_ROOT/themes/$theme.css"; fi
@@ -42,6 +44,13 @@ cp "$theme_file" "$dest/src/styles/theme.css"
 rm -rf "$dest/node_modules" "$dest/dist" "$dest/.astro"
 
 log "Filling in your details"
+# Free text (title, description, marker) goes through JSON encoding, so quotes
+# and apostrophes can't break the build. Everything else is validated above.
+python3 - "$dest/src/site.json" <<'PY'
+import json, os, sys
+json.dump({"title": os.environ["SITE_TITLE"], "description": os.environ["SITE_DESCRIPTION"],
+           "marker": os.environ["SITE_MARKER"]}, open(sys.argv[1], "w"), indent=2, ensure_ascii=False)
+PY
 find "$dest" -type f \( -name '*.astro' -o -name '*.mjs' -o -name '*.json' -o -name '*.yml' \
   -o -name '*.txt' -o -name '*.css' -o -name '*.md' \) -print | while IFS= read -r f; do
   if grep -q '{{[A-Z_]*}}' "$f"; then render_template "$f" "$f"; fi
@@ -59,6 +68,6 @@ cat <<EOF
 Next:
   cd $dest
   npm install && npm run dev          # http://localhost:4322, edit src/pages/index.astro
-  gh repo create $SITE_NAME --private --source . --push     # or create it on github.com
+  gh repo create $SITE_NAME --public --source . --push      # public is simplest; see PLAYBOOK for private
 Then set SITE_REPO in playbook.env to that repo's URL.
 EOF

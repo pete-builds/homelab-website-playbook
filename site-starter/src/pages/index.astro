@@ -1,11 +1,12 @@
 ---
 import Base from '../layouts/Base.astro';
+import site from '../site.json';
 ---
-<Base title="{{SITE_TITLE}}">
+<Base title={site.title}>
   <section class="hero">
     <div class="wrap">
       <p class="eyebrow">{{DOMAIN}}</p>
-      <h1>{{SITE_MARKER}}</h1>
+      <h1>{site.marker}</h1>
       <p class="lede">
         Replace this with one sentence about what you do and who it's for.
         This page is served from a computer you own.

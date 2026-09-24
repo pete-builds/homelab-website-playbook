@@ -28,7 +28,12 @@ class State:
             "example.org": {"name": "example.org", "registrable": False, "reason": "domain_unavailable"},
             "fresh-name.dev": {"name": "fresh-name.dev", "registrable": True, "tier": "standard",
                                "pricing": {"currency": "USD", "registration_cost": "10.11", "renewal_cost": "10.11"}},
-            "coffee.xyz": {"name": "coffee.xyz", "registrable": False, "tier": "premium", "reason": "domain_premium"},
+            # registrable but premium: exercises the tier check, not the availability check
+            "coffee.xyz": {"name": "coffee.xyz", "registrable": True, "tier": "premium",
+                           "pricing": {"currency": "USD", "registration_cost": "2500.00", "renewal_cost": "2500.00"}},
+            "noprice.dev": {"name": "noprice.dev", "registrable": True, "tier": "standard"},
+            "mine-already.dev": {"name": "mine-already.dev", "registrable": True, "tier": "standard",
+                                 "pricing": {"currency": "USD", "registration_cost": "10.11", "renewal_cost": "10.11"}},
         }
 
 
