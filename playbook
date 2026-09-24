@@ -1,0 +1,247 @@
+#!/usr/bin/env bash
+# ./playbook: the front door. One command per step, short output, a log of
+# every run, and `why` to explain the last failure.
+#
+#   ./playbook                    where you are and the next command (= status)
+#   ./playbook status [--brief|--json]
+#   ./playbook doctor             your laptop and playbook.env, checked
+#   ./playbook guide <0-8>        one phase of PLAYBOOK.md, not all of it
+#   ./playbook why [log]          what went wrong last time, and the fix
+#   ./playbook logs               recent run logs
+#
+#   ./playbook server <step>      run a server step from here, over ssh:
+#       key          put your SSH key on the server (asks for its password once)
+#       sync         copy this playbook and playbook.env to the server
+#       bootstrap    00: packages, admin user, key, timezone        (your terminal)
+#       ssh          10: key-only SSH, auto-revert unless confirmed (your terminal)
+#       test-login   run in a SECOND terminal during `ssh`: a fresh login works, passwords don't
+#       harden       20..60: firewall, fail2ban, kernel, Docker, updates (your terminal)
+#       firewall-test  prove from here that the server refuses a port it's listening on
+#       site         70: build and start the site on 127.0.0.1
+#       tunnel       80: create/repair the Cloudflare tunnel, install the connector
+#       watch        90: monitoring, daily audit, optional auto-deploy (your terminal)
+#       audit        the full security audit                          (your terminal)
+#       tunnel-update  move cloudflared to the latest version, rolls back by itself
+#
+#   ./playbook site <step>        new [--theme T] | dev | check | post "Title" | page "Title" | theme <name>
+#   ./playbook domain <args>      search | check | register | status   (scripts/local/cf-domain.py)
+#   ./playbook tunnel [status]    tunnel, ingress and DNS at Cloudflare (scripts/local/cf-tunnel.py)
+#   ./playbook deploy | rollback | verify
+#
+# "your terminal" steps ask for your server password (sudo), so an agent can't
+# run them for you: it will tell you what to type. Everything else it can run.
+set -uo pipefail
+here="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=scripts/lib.sh
+. "$here/scripts/lib.sh"
+
+cmd="${1:-status}"
+[ $# -gt 0 ] && shift
+
+logdir="${XDG_STATE_HOME:-$HOME/.local/state}/homelab-playbook/logs"
+
+# Log every run (except the read-only helpers): re-run this same command with
+# its output teed to a file, so `./playbook why` can read it later.
+case "$cmd" in
+  why|logs|guide|help|-h|--help|status|"") ;;
+  *)
+    if [ -z "${HLP_LOGGED:-}" ]; then
+      mkdir -p "$logdir"
+      log_file="$logdir/$(date +%Y%m%d-%H%M%S)-$cmd${1:+-$1}.log"
+      ( umask 077; : > "$log_file" )
+      # shellcheck disable=SC2012
+      ls -1t "$logdir" | sed -n '41,$p' | while IFS= read -r old; do rm -f "$logdir/$old"; done
+      HLP_LOGGED=1 "$0" "$cmd" "$@" 2>&1 | tee -a "$log_file"
+      rc=${PIPESTATUS[0]}
+      if [ "$rc" -ne 0 ]; then
+        printf '\n%s failed (exit %s). For the likely cause and the fix: ./playbook why\n' "$cmd" "$rc"
+      fi
+      exit "$rc"
+    fi
+    ;;
+esac
+
+# A step that needs a person at a keyboard: sudo wants a password, or a
+# safety net wants a typed "yes". Refuse up front, with the exact command,
+# instead of hanging or failing halfway.
+needs_terminal() {
+  if [ ! -t 0 ]; then
+    printf 'This step asks for your server password (sudo)%s, so it has to run in YOUR terminal:\n\n    ./playbook %s\n\n' "${2:-}" "$1"
+    printf 'Open Terminal, cd into this folder, and paste that line. Then come back and say "done".\n'
+    exit 2
+  fi
+}
+
+remote_dir='homelab-website-playbook'
+
+server_cmd() {
+  load_config
+  require_vars SERVER_HOST ADMIN_USER
+  validate_config || die "fix playbook.env first"
+  case "${1:-}" in
+    key)
+      need_cmd ssh
+      if SSH_EXTRA_OPTS="-o BatchMode=yes -o ConnectTimeout=6" ssh_server true 2>/dev/null; then
+        ok "your key already works for $ADMIN_USER@$SERVER_HOST"; return 0
+      fi
+      pub="${SSH_PUBKEY_FILE:-~/.ssh/id_ed25519.pub}"; pub="${pub/#\~/$HOME}"
+      [ -f "$pub" ] || die "no public key at $pub. Make one: ssh-keygen -t ed25519   (accept the defaults)"
+      needs_terminal "server key" " the first time"
+      log "Installing $pub for $ADMIN_USER on $SERVER_HOST (asks for $ADMIN_USER's password once)"
+      # shellcheck disable=SC2016
+      ssh_server 'umask 077; mkdir -p ~/.ssh; k=$(cat); grep -qxF "$k" ~/.ssh/authorized_keys 2>/dev/null || printf "%s\n" "$k" >> ~/.ssh/authorized_keys' < "$pub" \
+        || die "couldn't log in. Check SERVER_HOST, ADMIN_USER and the password."
+      SSH_EXTRA_OPTS="-o BatchMode=yes -o ConnectTimeout=6 -o ControlPath=none" ssh_server true \
+        || die "the key was added but a key login still fails; ./playbook why"
+      ok "key login works: ssh as $ADMIN_USER@$SERVER_HOST needs no password now"
+      ;;
+    sync)
+      need_cmd git ssh tar
+      [ -z "$(git -C "$here" status --porcelain -- scripts templates)" ] \
+        || warn "scripts/ or templates/ have uncommitted changes; the server gets the COMMITTED version"
+      log "Copying the playbook (committed files) and playbook.env to $SERVER_HOST:~/$remote_dir"
+      # A fresh copy each time, swapped in whole: nothing stale survives.
+      git -C "$here" archive --format=tar HEAD scripts templates playbook.env.example \
+        | ssh_server "rm -rf ~/$remote_dir.new && mkdir -p ~/$remote_dir.new && tar -xf - -C ~/$remote_dir.new" \
+        || die "couldn't copy the playbook to the server"
+      # shellcheck disable=SC2029
+      ssh_server "cat > ~/$remote_dir.new/playbook.env && rm -rf ~/$remote_dir.old && { [ ! -d ~/$remote_dir ] || mv ~/$remote_dir ~/$remote_dir.old; } && mv ~/$remote_dir.new ~/$remote_dir && rm -rf ~/$remote_dir.old" \
+        < "$PLAYBOOK_ENV_FILE" || die "couldn't install the copy on the server"
+      pub="${SSH_PUBKEY_FILE:-~/.ssh/id_ed25519.pub}"; pub="${pub/#\~/$HOME}"
+      if [ -f "$pub" ]; then
+        # shellcheck disable=SC2029
+        ssh_server "cat > ~/$remote_dir/laptop.pub" < "$pub"
+      fi
+      ok "server has playbook $(git -C "$here" rev-parse --short HEAD) and your playbook.env"
+      ;;
+    bootstrap|ssh|harden|watch|audit)
+      needs_terminal "server $1"
+      server_cmd sync
+      local steps
+      case "$1" in
+        bootstrap) steps="00-bootstrap.sh" ;;
+        ssh)       steps="10-harden-ssh.sh"
+                   cat <<EOF
+
+Before this runs: open a SECOND terminal, cd into this folder, and have this ready:
+    ./playbook server test-login
+When the script asks, run it there. Only type yes here if it says PASS.
+
+EOF
+                   ;;
+        harden)    steps="20-firewall.sh 30-fail2ban.sh 40-kernel.sh 50-docker.sh 60-auto-updates.sh" ;;
+        watch)     steps="90-watch.sh" ;;
+        audit)     steps="audit.sh" ;;
+      esac
+      # One ssh -t session and one sudo, so the password is asked once. A
+      # Debian install with a root password has no sudo: su asks for root's.
+      # shellcheck disable=SC2029
+      SSH_EXTRA_OPTS="-t" ssh_server "cd ~/$remote_dir && if command -v sudo >/dev/null; then sudo ./scripts/server/run-steps.sh $steps; else echo 'No sudo here yet: su asks for ROOT'\''s password.'; su root -c './scripts/server/run-steps.sh $steps'; fi"
+      ;;
+    test-login)
+      log "A FRESH login to $ADMIN_USER@$SERVER_HOST (no shared connection), with your key"
+      if SSH_EXTRA_OPTS="-o BatchMode=yes -o ConnectTimeout=8 -o ControlPath=none" ssh_server true; then
+        ok "key login works"
+      else
+        fail "key login FAILED. Do NOT type yes in the other terminal: let it revert."; exit 1
+      fi
+      log "A password login must be refused"
+      if SSH_EXTRA_OPTS="-o BatchMode=yes -o ConnectTimeout=8 -o ControlPath=none -o PubkeyAuthentication=no -o PreferredAuthentications=password,keyboard-interactive" ssh_server true 2>/dev/null; then
+        fail "a login WITHOUT your key got in. Don't type yes; let it revert."; exit 1
+      fi
+      ok "passwords are refused"
+      printf '\nPASS. Go back to the first terminal and type yes.\n'
+      ;;
+    firewall-test)
+      need_cmd python3
+      local p=45999 host
+      host=$(ssh -G "$SERVER_HOST" 2>/dev/null | awk '/^hostname /{print $2; exit}'); host=${host:-$SERVER_HOST}
+      log "Starting a throwaway listener on $SERVER_HOST:$p (all interfaces, 25 seconds)"
+      # shellcheck disable=SC2029
+      ssh_server "nohup timeout 25 python3 -m http.server $p --bind 0.0.0.0 </dev/null >/dev/null 2>&1 &" || die "couldn't start the listener"
+      sleep 2
+      # shellcheck disable=SC2029
+      ssh_server "curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://127.0.0.1:$p/" | grep -q 200 \
+        || die "the listener didn't start on the server, so this test would prove nothing"
+      ok "control: the server itself reaches its listener on :$p"
+      if python3 -c 'import socket,sys; socket.create_connection((sys.argv[1], int(sys.argv[2])), 4)' "$host" "$p" 2>/dev/null; then
+        fail "your laptop reached $host:$p. The firewall is NOT blocking inbound connections."; exit 1
+      fi
+      ok "your laptop can't reach $host:$p: the firewall refuses what it should"
+      ;;
+    site)
+      server_cmd sync
+      # shellcheck disable=SC2029
+      ssh_server "cd ~/$remote_dir && ./scripts/server/70-site.sh"
+      ;;
+    tunnel)
+      require_vars SITE_NAME
+      local tok="$HOME/.config/homelab-playbook/tunnel-$SITE_NAME.token"
+      HLP_FROM_PLAYBOOK=1 python3 "$here/scripts/local/cf-tunnel.py" create || exit 1
+      [ -s "$tok" ] || die "no tunnel token at $tok"
+      server_cmd sync
+      # The token rides ssh's stdin, never an argument or the screen.
+      # shellcheck disable=SC2029
+      ssh_server "cd ~/$remote_dir && ./scripts/server/80-tunnel.sh" < "$tok"
+      ;;
+    tunnel-update)
+      server_cmd sync
+      # shellcheck disable=SC2029
+      ssh_server "cd ~/$remote_dir && ./scripts/server/update-tunnel.sh ${2:-}"
+      ;;
+    *) sed -n '/server <step>/,/tunnel-update/p' "$0" | sed 's/^# \{0,1\}//'; return 2 ;;
+  esac
+}
+
+site_cmd() {
+  load_config
+  require_vars SITE_DIR
+  local dir="${SITE_DIR/#\~/$HOME}" sub="${1:-}"
+  [ $# -gt 0 ] && shift
+  case "$sub" in
+    new) exec "$here/scripts/local/new-site.sh" "$@" ;;
+  esac
+  [ -d "$dir" ] || die "no site at $dir yet: ./playbook site new"
+  cd "$dir" || exit 1
+  case "$sub" in
+    dev)   [ -d node_modules ] || run_quiet "npm install" npm install --no-audit --no-fund; exec npm run dev ;;
+    check) run_quiet "npm ci" npm ci --no-audit --no-fund && run_quiet "build" npm run build && npm run --silent check ;;
+    post)  exec npm run --silent new:post -- "$@" ;;
+    page)  exec npm run --silent new:page -- "$@" ;;
+    meta)  exec npm run --silent set:meta -- "$@" ;;
+    theme)
+      local t="${1:-}" f
+      [ -n "$t" ] || die "which theme? $(for x in "$here"/themes/*.css; do basename "$x" .css; done | tr '\n' ' ')"
+      if [ -f "$t" ]; then f="$t"; else f="$here/themes/$t.css"; fi
+      [ -f "$f" ] || die "no theme '$t'"
+      python3 "$here/tests/check-themes.py" "$f" || die "that theme fails the contrast check"
+      cp "$f" src/styles/theme.css
+      ok "theme $(basename "$f" .css) is in place. Preview: ./playbook site dev. Ship: commit, then ./playbook deploy"
+      ;;
+    *) die "site steps: new | dev | check | post \"Title\" | page \"Title\" | meta --title .. --description .. | theme <name>" ;;
+  esac
+}
+
+case "$cmd" in
+  status)   exec python3 "$here/scripts/local/status.py" "$@" ;;
+  doctor)   exec "$here/scripts/local/preflight.sh" ;;
+  guide)
+    n="${1:-}"
+    case "$n" in [0-8]) ;; *) die "guide <0-8>: one phase of PLAYBOOK.md" ;; esac
+    awk -v n="$n" '/^## /{on = ($2 == "Phase" && $3 == n":")} on' "$here/PLAYBOOK.md"
+    ;;
+  why)      exec python3 "$here/scripts/local/diagnose.py" "$@" ;;
+  logs)     ls -1t "$logdir" 2>/dev/null | sed -n "1,15s|^|$logdir/|p" ;;
+  server)   server_cmd "$@" ;;
+  site)     site_cmd "$@" ;;
+  domain)   exec python3 "$here/scripts/local/cf-domain.py" "$@" ;;
+  tunnel)   exec python3 "$here/scripts/local/cf-tunnel.py" "${@:-status}" ;;
+  deploy)   exec "$here/scripts/local/deploy.sh" ;;
+  rollback) exec "$here/scripts/local/rollback.sh" ;;
+  verify)
+    load_config; require_vars DOMAIN SITE_MARKER
+    exec "$here/scripts/verify-site.sh" "https://$DOMAIN" "$SITE_MARKER"
+    ;;
+  help|-h|--help) sed -n '2,/^set -uo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//' ;;
+  *) die "unknown command '$cmd'. ./playbook help" ;;
+esac
