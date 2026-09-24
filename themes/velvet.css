@@ -1,0 +1,32 @@
+/* velvet: pure black, white serif headline, violet reserved for details.
+   Pattern studied: "Resend" on Refero Styles
+     https://styles.refero.design/style/0d914ef0-fa84-4c60-a9aa-cef0b5eb6e5d
+   What carries over: an anti-decorative black canvas, a large serif display
+   face against a sans body, monospace as the "developer" voice for labels, and
+   a violet that marks details (links, focus) instead of filling buttons. */
+:root {
+  --bg: #000000;
+  --surface: #0a0a0b;
+  --surface-2: #141416;
+  --border: #292d30;
+  --border-strong: #464a4d;
+  --heading: #ffffff;
+  --text: #f0f0f0;
+  --text-muted: #a1a4a5;
+  --link: #baa7ff;
+  --accent: #f0f0f0;
+  --accent-ink: #000000;
+  --focus: #baa7ff;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --display-weight: 400;
+  --display-tracking: -0.02em;
+
+  --radius: 8px;
+  --radius-lg: 14px;
+  --radius-button: 999px;
+  --shadow: none;
+  color-scheme: dark;
+}

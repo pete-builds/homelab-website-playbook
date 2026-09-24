@@ -1,0 +1,35 @@
+# Cloudflare Tunnel for {{DOMAIN}}. Installed by scripts/server/80-tunnel.sh
+# into /srv/cloudflared/{{SITE_NAME}}/.
+#
+# WHY A SEPARATE COMPOSE PROJECT, NOT A SERVICE IN THE SITE'S STACK
+#   1. The site starts whether or not a tunnel token exists. A sidecar that
+#      requires the token would let a missing .env take the site down too.
+#   2. A deploy that goes wrong in the site's directory can't touch the tunnel.
+#
+# The tunnel only dials OUT to Cloudflare. It publishes no port and listens on
+# nothing, which is why the firewall can deny all inbound traffic.
+# Host networking is how it reaches the site on the server's own
+# 127.0.0.1:{{SITE_PORT}}. Plain HTTP on that hop is correct: it never leaves
+# the machine. Cloudflare terminates HTTPS at its edge.
+#
+# The version is pinned. The weekly refresh tells you when a newer one is out;
+# bump the tag here, then: docker compose pull && docker compose up -d
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:{{CLOUDFLARED_VERSION}}
+    container_name: cloudflared-{{SITE_NAME}}
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    network_mode: host
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set it in .env beside this file}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - 'no-new-privileges:true'
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'

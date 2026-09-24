@@ -1,0 +1,13 @@
+playbook.env
+PROGRESS.md
+*.token
+.env
+.env.*
+!playbook.env.example
+node_modules/
+dist/
+.astro/
+site-starter/node_modules/
+site-starter/dist/
+__pycache__/
+.DS_Store

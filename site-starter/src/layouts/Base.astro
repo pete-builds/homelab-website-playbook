@@ -1,0 +1,53 @@
+---
+import '../styles/theme.css';
+import '../styles/base.css';
+
+interface Props {
+  title: string;
+  description?: string;
+}
+const { title, description = '{{SITE_DESCRIPTION}}' } = Astro.props;
+// Baked in at build time by deploy.sh / the Dockerfile. The deploy verifies the
+// LIVE page carries this exact value, which proves the new build is the one
+// being served (and not an old one cached somewhere).
+const buildId = import.meta.env.PUBLIC_BUILD_ID ?? 'dev';
+const canonical = new URL(Astro.url.pathname, Astro.site);
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="sitemap" href="/sitemap-index.xml" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta name="build" content={`build:${buildId}`} />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="wrap row">
+        <a class="brand" href="/">{{SITE_TITLE}}</a>
+        <nav aria-label="Main">
+          <a href="/#about">About</a>
+          <a href="/#work">Work</a>
+          <a href="/#contact" class="button button-small">Get in touch</a>
+        </nav>
+      </div>
+    </header>
+    <main id="main">
+      <slot />
+    </main>
+    <footer class="site-footer">
+      <div class="wrap row">
+        <span>© {new Date().getFullYear()} {{SITE_TITLE}}</span>
+        <span class="muted">Self-hosted. Served from a server at home, through a Cloudflare tunnel.</span>
+      </div>
+    </footer>
+  </body>
+</html>

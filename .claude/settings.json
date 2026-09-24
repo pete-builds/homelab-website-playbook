@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(~/.config/homelab-playbook/**)",
+      "Read(**/.env)",
+      "Read(**/*.token)",
+      "Bash(cat ~/.config/homelab-playbook/*)",
+      "Bash(cat */.env)"
+    ]
+  }
+}

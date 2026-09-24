@@ -1,0 +1,32 @@
+/* midnight: near-black command center, one electric accent used sparingly.
+   Pattern studied: "Linear" and "Raycast" on Refero Styles
+     https://styles.refero.design/style/90ce5883-bb24-4466-93f7-801cd617b0d1
+     https://styles.refero.design/style/3b6a17f0-3bdf-418c-a95e-0b89e5a8b2f8
+   What carries over: darkness as the substrate (not a "dark mode"), a stepped
+   gray elevation ladder, hairline borders instead of shadows, tight display
+   tracking at medium weight, and a single accent reserved for action. */
+:root {
+  --bg: #08090a;
+  --surface: #0f1011;
+  --surface-2: #161718;
+  --border: #23252a;
+  --border-strong: #383b3f;
+  --heading: #ffffff;
+  --text: #d0d6e0;
+  --text-muted: #8a8f98;
+  --link: #e4f222;
+  --accent: #e4f222;
+  --accent-ink: #08090a;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: var(--font-sans);
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --display-weight: 560;
+  --display-tracking: -0.022em;
+
+  --radius: 6px;
+  --radius-lg: 12px;
+  --radius-button: 6px;
+  --shadow: none;
+  color-scheme: dark;
+}

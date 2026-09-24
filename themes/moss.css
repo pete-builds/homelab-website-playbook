@@ -1,0 +1,31 @@
+/* moss: deep forest ink, lime voltage, loud blocky headlines.
+   Pattern studied: "Wise" on Refero Styles
+     https://styles.refero.design/style/367c0c6e-73a7-441c-a8ff-91d139ac60dc
+   What carries over: a dark green that does the work black usually does, one
+   bright lime reserved for calls to action, heavy tightly tracked display type,
+   pill buttons, and an otherwise restrained near-white canvas. */
+:root {
+  --bg: #ffffff;
+  --surface: #f3f6f1;
+  --surface-2: #e2f6d5;
+  --border: #e8ebe6;
+  --border-strong: #c9cfc5;
+  --heading: #163300;
+  --text: #0e0f0c;
+  --text-muted: #454745;
+  --link: #054d28;
+  --accent: #9fe870;
+  --accent-ink: #163300;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: var(--font-sans);
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --display-weight: 850;
+  --display-tracking: -0.035em;
+
+  --radius: 12px;
+  --radius-lg: 24px;
+  --radius-button: 999px;
+  --shadow: none;
+  color-scheme: light;
+}

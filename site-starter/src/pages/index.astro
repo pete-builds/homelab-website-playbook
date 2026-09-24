@@ -1,0 +1,59 @@
+---
+import Base from '../layouts/Base.astro';
+---
+<Base title="{{SITE_TITLE}}">
+  <section class="hero">
+    <div class="wrap">
+      <p class="eyebrow">{{DOMAIN}}</p>
+      <h1>{{SITE_MARKER}}</h1>
+      <p class="lede">
+        Replace this with one sentence about what you do and who it's for.
+        This page is served from a computer you own.
+      </p>
+      <div class="actions">
+        <a class="button" href="#contact">Start here</a>
+        <a class="button button-ghost" href="#work">See the work</a>
+      </div>
+    </div>
+  </section>
+
+  <section id="about" class="section">
+    <div class="wrap grid-2">
+      <h2>About</h2>
+      <div class="prose">
+        <p>
+          Two or three short paragraphs. Say it the way you'd say it out loud.
+          Edit <code>src/pages/index.astro</code>, save, and the dev server reloads.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section id="work" class="section">
+    <div class="wrap">
+      <h2>Work</h2>
+      <div class="cards">
+        <article class="card">
+          <h3>First thing</h3>
+          <p>What it is, in one line.</p>
+        </article>
+        <article class="card">
+          <h3>Second thing</h3>
+          <p>What it is, in one line.</p>
+        </article>
+        <article class="card">
+          <h3>Third thing</h3>
+          <p>What it is, in one line.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="contact" class="section section-alt">
+    <div class="wrap narrow center">
+      <h2>Say hello</h2>
+      <p class="lede">The simplest contact form is a link.</p>
+      <a class="button" href="mailto:hello@{{DOMAIN}}">hello@{{DOMAIN}}</a>
+    </div>
+  </section>
+</Base>

@@ -1,0 +1,28 @@
+# Managed by homelab-website-playbook (scripts/server/30-fail2ban.sh).
+#
+# ignoreip exempts an address from EVERY jail. Keep it to loopback plus your
+# LAN. Adding your laptop's public IP "so you never get banned" also means a
+# ban can never prove your check worked. Probe from somewhere you'd actually
+# be banned from.
+
+[DEFAULT]
+ignoreip = 127.0.0.1/8 ::1 {{LAN_CIDR_OR_LOOPBACK}}
+bantime  = 1h
+findtime = 10m
+maxretry = 5
+backend  = systemd
+banaction = {{BANACTION}}
+
+[sshd]
+enabled  = true
+port     = {{SSH_PORT}}
+maxretry = 3
+
+# Repeat offenders: anyone banned 5 times in a day is banned for a week.
+[recidive]
+enabled  = true
+backend  = auto
+logpath  = /var/log/fail2ban.log
+bantime  = 1w
+findtime = 1d
+maxretry = 5

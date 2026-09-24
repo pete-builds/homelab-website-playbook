@@ -1,0 +1,36 @@
+/* parchment: warm editorial paper, ink-black text, one ember accent.
+   Pattern studied: "Cursor", "Intercom" and "ElevenLabs" on Refero Styles
+     https://styles.refero.design/style/4e3b4717-84c8-4599-baaf-a343c3d619b6
+     https://styles.refero.design/style/12255b63-e506-4bc1-a4cd-d05487de32f3
+     https://styles.refero.design/style/031056ff-7af1-46db-8daa-115f731c5d26
+   What carries over: a cream canvas instead of cold white, headlines that
+   whisper at regular weight in a serif, sharp 4px corners, hairline warm-gray
+   borders, and color used as punctuation rather than fill. */
+:root {
+  --bg: #f7f7f4;
+  --surface: #f2f1ed;
+  --surface-2: #e6e5e0;
+  --border: #e6e5e0;
+  --border-strong: #cdcdc9;
+  --heading: #26251e;
+  --text: #26251e;
+  --text-muted: #5f5e58;
+  /* The ember accent (#f54e00) is too light for small text on cream, so links
+     use a darker cut of the same hue. tests/check-themes.py enforces this. */
+  --link: #b33900;
+  --accent: #26251e;
+  --accent-ink: #f7f7f4;
+  --focus: #f54e00;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --display-weight: 400;
+  --display-tracking: -0.015em;
+
+  --radius: 4px;
+  --radius-lg: 4px;
+  --radius-button: 4px;
+  --shadow: 0 1px 2px rgba(38, 37, 30, 0.06);
+  color-scheme: light;
+}

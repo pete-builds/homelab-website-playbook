@@ -1,0 +1,29 @@
+#!/bin/sh
+# Reboot ONLY when an installed update needs it. Runs daily at REBOOT_TIME from
+# homelab-reboot-check.timer. Automatic updates install the patch; this makes
+# the patch take effect.
+#
+# Debian/Ubuntu signal it with /var/run/reboot-required.
+# Fedora/RHEL: `needs-restarting -r` exits 1 when a reboot is needed. Where that
+# tool is missing, compare the running kernel with the newest installed one.
+set -eu
+
+need=""
+if [ -f /var/run/reboot-required ]; then
+  need="$(cat /var/run/reboot-required.pkgs 2>/dev/null | tr '\n' ' ')"
+  [ -n "$need" ] || need="reboot-required flag"
+elif command -v needs-restarting >/dev/null 2>&1; then
+  if ! needs-restarting -r >/dev/null 2>&1; then need="needs-restarting -r"; fi
+elif command -v rpm >/dev/null 2>&1; then
+  newest=$(rpm -q kernel --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort -V | tail -n 1)
+  [ "$(uname -r)" = "$newest" ] || need="kernel $(uname -r) -> $newest"
+fi
+
+if [ -z "$need" ]; then
+  logger -t homelab-reboot "no reboot needed"
+  exit 0
+fi
+
+/usr/local/sbin/homelab-notify "rebooting to apply updates: $need"
+sleep 5
+systemctl reboot

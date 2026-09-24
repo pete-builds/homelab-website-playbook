@@ -1,0 +1,27 @@
+#!/bin/sh
+# homelab-notify "message": send one line to your phone, and always to the journal.
+#
+# Reads NOTIFY_URL from /etc/homelab-playbook/notify.env (mode 600). Works with:
+#   ntfy       NOTIFY_URL=https://ntfy.sh/<a-long-random-topic>
+#   Discord    NOTIFY_URL=https://discord.com/api/webhooks/<id>/<token>
+#   anything that accepts a plain-text POST
+#
+# Email is deliberately not an option: many hosts block outbound port 25, and
+# mail(1) then fails without a word. An HTTPS webhook either arrives or errors.
+msg="[$(hostname)] $*"
+logger -t homelab-notify -- "$msg"
+
+conf=/etc/homelab-playbook/notify.env
+[ -r "$conf" ] || exit 0
+# shellcheck disable=SC1090
+. "$conf"
+[ -n "${NOTIFY_URL:-}" ] || exit 0
+
+case "$NOTIFY_URL" in
+  *discord.com/api/webhooks/*|*discordapp.com/api/webhooks/*)
+    esc=$(printf '%s' "$msg" | sed 's/\\/\\\\/g; s/"/\\"/g')
+    curl -fsS --max-time 15 -H 'Content-Type: application/json' \
+      -d "{\"content\":\"$esc\"}" "$NOTIFY_URL" >/dev/null ;;
+  *)
+    curl -fsS --max-time 15 -d "$msg" "$NOTIFY_URL" >/dev/null ;;
+esac || logger -t homelab-notify "delivery FAILED for: $msg"
