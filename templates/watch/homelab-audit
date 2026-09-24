@@ -1,0 +1,31 @@
+#!/bin/sh
+# homelab-audit: the full security audit, daily, as root (homelab-audit.timer).
+# Installed by scripts/server/90-watch.sh.
+#
+# Saves the report to /var/lib/homelab-playbook/audit.txt (readable without
+# sudo, so `./playbook status` can show it) and tells you when the set of FAIL
+# lines CHANGES: a new problem, or all clear again. The same failure isn't
+# repeated every day.
+set -u
+VAR="${HLP_VAR:-/var/lib/homelab-playbook}"
+LIB="${HLP_LIB:-/usr/local/lib/homelab-playbook}"
+NOTIFY="${HLP_NOTIFY:-/usr/local/sbin/homelab-notify}"
+mkdir -p "$VAR"
+
+"$LIB/scripts/server/audit.sh" > "$VAR/audit.txt.tmp" 2>&1
+rc=$?
+chmod 644 "$VAR/audit.txt.tmp" && mv "$VAR/audit.txt.tmp" "$VAR/audit.txt"
+tail -n 1 "$VAR/audit.txt"
+
+grep '^  FAIL' "$VAR/audit.txt" | sed 's/^  FAIL //' > "$VAR/audit.fails.new" || true
+if ! cmp -s "$VAR/audit.fails.new" "$VAR/audit.fails" 2>/dev/null; then
+  if [ -s "$VAR/audit.fails.new" ]; then
+    msg="security audit: $rc FAIL. $(head -n 1 "$VAR/audit.fails.new")"
+    [ "$rc" -le 1 ] || msg="$msg (and $((rc - 1)) more: ./playbook status)"
+  else
+    msg="security audit: all clear again"
+  fi
+  if [ -x "$NOTIFY" ]; then "$NOTIFY" "$msg"; else echo "$msg"; fi
+fi
+mv "$VAR/audit.fails.new" "$VAR/audit.fails"
+exit 0

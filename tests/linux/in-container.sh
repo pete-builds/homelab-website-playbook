@@ -50,14 +50,37 @@ if fail2ban-client -t >/dev/null 2>&1; then t_bad "control: fail2ban accepted a 
 rm -f /etc/fail2ban/jail.d/zz-broken.local
 
 # ── unattended-upgrades: our origins parse and match the security pocket ─────
-sed -n '/^cat > \/etc\/apt\/apt.conf.d\/52homelab-playbook/,/^EOF$/p' /repo/scripts/server/60-auto-updates.sh | sed '1d;$d' \
+# The heredoc is indented inside an if block: match leading space, and then
+# PROVE something was extracted. (Until this check existed, the pattern missed
+# the indented line, the file came out empty, and every check below passed
+# against the distro's defaults instead of ours.)
+sed -n '/^[[:space:]]*cat > \/etc\/apt\/apt.conf.d\/52homelab-playbook/,/^EOF$/p' /repo/scripts/server/60-auto-updates.sh | sed '1d;$d' \
   > /etc/apt/apt.conf.d/52homelab-playbook
+if grep -q '^Unattended-Upgrade::Origins-Pattern {' /etc/apt/apt.conf.d/52homelab-playbook; then t_ok "extracted 52homelab-playbook from 60-auto-updates.sh ($(wc -l < /etc/apt/apt.conf.d/52homelab-playbook) lines)"
+else t_bad "extracted an empty or wrong 52homelab-playbook: every apt check below would test the distro's defaults"; fi
 # apt-config parses every file in apt.conf.d and exits non-zero on a syntax error.
 if apt-config dump >/dev/null 2>&1; then t_ok "apt accepts 52homelab-playbook"; else t_bad "apt rejects 52homelab-playbook"; fi
 # Control: a deliberately broken file must make apt-config fail.
 printf 'Unattended-Upgrade::Origins-Pattern {\n  "origin=x"\n' > /etc/apt/apt.conf.d/99zz-broken
 if apt-config dump >/dev/null 2>&1; then t_bad "control: apt accepted a broken file"; else t_ok "control: apt rejects a broken file"; fi
 rm -f /etc/apt/apt.conf.d/99zz-broken
+# "Security only" has to be true after apt MERGES every file's lists. Ask
+# unattended-upgrades itself which origins it will install from: every one
+# must be a security pocket.
+allowed() { unattended-upgrade --dry-run --debug 2>&1 | sed -n 's/.*Allowed origins are: //p' | head -n 1; }
+# Entries are separated by ", " (each entry has commas of its own).
+non_security() { printf '%s\n' "$1" | awk -F', ' '{for (i = 1; i <= NF; i++) print $i}' | grep -E '[[:alnum:]]' | grep -viE 'security' || true; }
+got=$(allowed)
+if [ -n "$got" ] && [ -z "$(non_security "$got")" ]; then t_ok "unattended-upgrades installs from security pockets only: $got"
+else t_bad "unattended-upgrades would install from: $got"; fi
+# Control: the same file without its #clear lines must let a non-security
+# origin back in (Debian's point releases, Ubuntu's release pocket). If it
+# doesn't, the check above can't tell our config from the defaults.
+cp /etc/apt/apt.conf.d/52homelab-playbook /tmp/52keep
+grep -v '^#clear' /tmp/52keep > /etc/apt/apt.conf.d/52homelab-playbook
+if [ -n "$(non_security "$(allowed)")" ]; then t_ok "control: without #clear, a non-security origin gets in (so #clear is load-bearing)"
+else t_bad "control: removing #clear changed nothing; the check above proves nothing"; fi
+cp /tmp/52keep /etc/apt/apt.conf.d/52homelab-playbook
 out=$(unattended-upgrade --dry-run --debug 2>&1 || true)
 if grep -q 'Allowed origins are:.*security' <<<"$out"; then t_ok "unattended-upgrades allows the security pocket"
 else printf '%s\n' "$out" | head -20; t_bad "unattended-upgrades did not load security origins"; fi
