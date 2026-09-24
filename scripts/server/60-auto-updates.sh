@@ -50,6 +50,13 @@ EOF
 // Managed by homelab-website-playbook. Security updates only, from the distro.
 // Third-party repos (Docker, etc.) are NOT patched here; `audit.sh` reports
 // pending updates so you can apply them with `apt upgrade` when you choose.
+// #clear first: apt MERGES lists across files. Debian's own
+// 50unattended-upgrades allows the main suite (point releases) in
+// Origins-Pattern, and Ubuntu's allows the release pocket in Allowed-Origins,
+// and unattended-upgrades takes a package that matches EITHER list. Without
+// these two lines, "security only" isn't true.
+#clear Unattended-Upgrade::Origins-Pattern;
+#clear Unattended-Upgrade::Allowed-Origins;
 Unattended-Upgrade::Origins-Pattern {
         "origin=${distro_id},archive=${distro_codename}-security";
         "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
@@ -86,6 +93,24 @@ emit_via = stdio
   systemctl enable --now "$timer" >/dev/null
   ok "dnf automatic: security only, via $timer"
 fi
+
+# When a scheduled job fails, say so. OnFailure fires when a unit's run ends
+# in failure; the drop-ins below attach it to the distro's update job and to
+# ours. (A failure that exits 0 can't trigger it: audit.sh separately FAILs
+# when security updates haven't SUCCEEDED for days.)
+cat > /etc/systemd/system/homelab-alert@.service <<'EOF'
+[Unit]
+Description=Tell the owner that %i failed
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/homelab-notify "FAILED: %i. The server tried and it didn't work. On the server: journalctl -u %i -n 50"
+EOF
+for u in apt-daily-upgrade.service dnf-automatic.service dnf5-automatic.service \
+         homelab-reboot-check.service homelab-refresh-containers.service; do
+  install -d -m 755 "/etc/systemd/system/$u.d"
+  printf '[Unit]\nOnFailure=homelab-alert@%%n.service\n' > "/etc/systemd/system/$u.d/homelab-alert.conf"
+done
 
 cat > /etc/systemd/system/homelab-reboot-check.service <<'EOF'
 [Unit]
@@ -129,15 +154,17 @@ RandomizedDelaySec=15m
 WantedBy=timers.target
 EOF
 # Tell you when the box comes back, so a reboot you slept through is visible.
+# Once 90-watch.sh is installed, the message is a verdict, not just a hello:
+# "back up, site healthy" or exactly what isn't.
 cat > /etc/systemd/system/homelab-booted.service <<'EOF'
 [Unit]
-Description=Notify after boot
-After=network-online.target
+Description=Notify after boot, with a health verdict
+After=network-online.target docker.service
 Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'sleep 30; /usr/local/sbin/homelab-notify "back up after boot, kernel $(uname -r)"'
+ExecStart=/bin/sh -c 'sleep 90; if [ -x /usr/local/sbin/homelab-watch ]; then /usr/local/sbin/homelab-watch --boot; else /usr/local/sbin/homelab-notify "back up after boot, kernel $(uname -r)"; fi'
 
 [Install]
 WantedBy=multi-user.target

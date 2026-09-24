@@ -49,6 +49,18 @@ else
   if systemctl is-enabled --quiet dnf-automatic.timer 2>/dev/null || systemctl is-enabled --quiet dnf5-automatic.timer 2>/dev/null
   then P "dnf automatic enabled"; else F "dnf automatic not enabled"; fi
 fi
+# Enabled is not the same as working. apt stamps upgrade-stamp only after
+# unattended-upgrade SUCCEEDS, and a failed run still exits 0 (nothing alerts).
+if [ "$OS_FAMILY" = debian ]; then
+  stamp=/var/lib/apt/periodic/upgrade-stamp
+  if [ -f "$stamp" ]; then
+    age=$(( ( $(date +%s) - $(stat -c %Y "$stamp") ) / 86400 ))
+    if [ "$age" -ge 3 ]; then F "security updates haven't succeeded since $(date -d "@$(stat -c %Y "$stamp")" +%F) ($age days). Why: sudo unattended-upgrade -d"
+    else P "security updates last succeeded $age day(s) ago"; fi
+  else
+    W "security updates haven't run yet (the first run is within a day of setup)"
+  fi
+fi
 if systemctl is-enabled --quiet homelab-reboot-check.timer 2>/dev/null; then P "reboot check scheduled"; else F "homelab-reboot-check.timer not enabled"; fi
 if [ -f /var/run/reboot-required ]; then W "a reboot is pending (it happens at the scheduled time)"; fi
 if [ -s /etc/homelab-playbook/notify.env ]; then P "notifications configured"; else W "no NOTIFY_URL; you won't hear about failures"; fi
@@ -79,9 +91,22 @@ if command -v docker >/dev/null 2>&1; then
   if [ -z "$unhealthy" ]; then P "no unhealthy containers"; else F "unhealthy: $unhealthy"; fi
 fi
 
+echo "== Watch"
+if systemctl is-enabled --quiet homelab-watch.timer 2>/dev/null; then
+  wt=/var/lib/homelab-playbook/watch.txt
+  if [ -f "$wt" ]; then
+    wage=$(( ( $(date +%s) - $(stat -c %Y "$wt") ) / 60 ))
+    if [ "$wage" -gt 30 ]; then F "the watch last ran $wage minutes ago (every 10 expected): systemctl status homelab-watch.timer"
+    elif grep -q ' FAIL ' "$wt"; then F "the watch sees a problem: $(grep -m1 ' FAIL ' "$wt" | cut -d' ' -f2-)"
+    else P "site watched, last check ${wage}m ago: ok"; fi
+  else W "watch installed but hasn't run yet"; fi
+else
+  W "nothing watches the site: from the laptop, ./playbook server watch"
+fi
+
 echo "== Secret files"
 found=0
-for f in /srv/cloudflared/*/.env /srv/sites/*/.env /etc/homelab-playbook/*.env; do
+for f in /srv/cloudflared/*/token /srv/cloudflared/*/.env /srv/sites/*/.env /etc/homelab-playbook/*.env; do
   [ -e "$f" ] || continue; found=1
   m=$(stat -c '%a' "$f")
   case "$m" in 600|400) P "$f is $m" ;; *) F "$f is mode $m (should be 600)" ;; esac

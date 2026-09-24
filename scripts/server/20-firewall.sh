@@ -23,14 +23,20 @@ detect_os
 # The one mistake that locks you out: a LAN_CIDR that doesn't contain the
 # address you're connected from. ufw keeps your current session alive, but
 # every NEW login would be refused. Check before touching anything.
+# `sudo` wipes SSH_CLIENT, so ssh_session_peers asks the kernel which
+# addresses hold SSH sessions open, and every one of them has to be inside.
 if [ -n "${LAN_CIDR:-}" ]; then
-  me="${SSH_CLIENT%% *}"
-  if [ -n "$me" ] && ! ip_in_cidr "$me" "$LAN_CIDR"; then
-    die "you're connected from $me, which is OUTSIDE LAN_CIDR=$LAN_CIDR. This would lock you out.
+  peers=$(ssh_session_peers)
+  outside=""
+  for p in $peers; do
+    ip_in_cidr "$p" "$LAN_CIDR" || outside="$outside $p"
+  done
+  if [ -n "$outside" ]; then
+    die "an SSH session is open from$outside, which is OUTSIDE LAN_CIDR=$LAN_CIDR. This would lock you out.
        Fix LAN_CIDR in playbook.env (or leave it empty), then re-run."
   fi
-  [ -n "$me" ] && ok "your session ($me) is inside $LAN_CIDR"
-  [ -n "$me" ] || warn "not running over SSH, so I can't check LAN_CIDR against your laptop. Be sure it includes it."
+  if [ -n "$peers" ]; then ok "every SSH session ($(printf '%s' "$peers" | tr '\n' ' ' | sed 's/ $//')) is inside $LAN_CIDR"
+  else warn "no SSH session found (console?), so I can't check LAN_CIDR against your laptop. Be sure it includes it."; fi
 fi
 
 if [ "$OS_FAMILY" = debian ]; then

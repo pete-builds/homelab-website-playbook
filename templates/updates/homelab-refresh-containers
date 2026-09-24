@@ -1,43 +1,79 @@
 #!/bin/sh
 # Weekly: rebuild every site on a freshly pulled base image, so nginx and Alpine
 # security fixes arrive without you doing anything. Then prove each site still
-# answers, and tell you if one does not.
+# answers with its own build id, put the previous image back if it doesn't,
+# and send one "all good" line, so a week of silence means something is wrong.
 #
 # The tunnel (cloudflared) is pinned to an exact version on purpose and is NOT
-# bumped here. This only tells you when a newer release exists; you bump the
-# tag in /srv/cloudflared/<site>/docker-compose.yml when you choose to.
+# bumped here. This only tells you when a newer release exists; move the pin
+# with scripts/server/update-tunnel.sh, which rolls back by itself.
 set -u
+NOTIFY="${HLP_NOTIFY:-/usr/local/sbin/homelab-notify}"
+notify() { if [ -x "$NOTIFY" ]; then "$NOTIFY" "$*"; else echo "$*"; fi; }
 
-rc=0
+rc=0; report=""
 for dir in /srv/sites/*/; do
   [ -f "$dir/docker-compose.yml" ] || continue
-  name=$(basename "$dir")
+  dir=${dir%/}; name=$(basename "$dir"); img="$name-site"
   port=$(sed -n 's/.*127\.0\.0\.1:\([0-9]*\):80.*/\1/p' "$dir/docker-compose.yml" | head -n 1)
-  # Keep the build id the deploy baked in, so "which build is live" stays true.
-  build_id=$(git -C "$dir" rev-parse --short=12 HEAD 2>/dev/null || echo dev)
-  if ! (cd "$dir" && BUILD_ID="$build_id" docker compose build --pull -q && BUILD_ID="$build_id" docker compose up -d); then
-    /usr/local/sbin/homelab-notify "weekly rebuild FAILED for $name; the previous container is still running"
+  # Root reading a checkout your admin user owns: git refuses ("dubious
+  # ownership") unless told this one directory is fine. Without this the build
+  # id silently became "dev" every Sunday.
+  build_id=$(git -c safe.directory="$dir" -C "$dir" rev-parse --short=12 HEAD 2>/dev/null) || build_id=""
+  if [ -z "$build_id" ]; then notify "weekly: can't read $name's commit; skipped it"; rc=1; continue; fi
+  healthy() {
+    [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://127.0.0.1:${port:-0}/healthz")" = 200 ] \
+      && curl -s --max-time 10 "http://127.0.0.1:${port:-0}/" | grep -F "content=\"build:$build_id\"" >/dev/null
+  }
+  # Don't rebuild what's already broken: that would only hide the cause.
+  if ! healthy; then
+    notify "weekly: $name was already unhealthy before its rebuild, so I left it alone. ./playbook status"
     rc=1; continue
   fi
-  sleep 5
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://127.0.0.1:${port:-0}/healthz")
-  if [ "$code" != "200" ]; then
-    /usr/local/sbin/homelab-notify "after weekly rebuild $name answers $code on /healthz"
-    rc=1
-  else
+  docker tag "$img:$build_id" "$img:$build_id-prev" 2>/dev/null
+  if ! (cd "$dir" && BUILD_ID="$build_id" docker compose build --pull -q >/dev/null 2>&1 \
+        && BUILD_ID="$build_id" docker compose up -d --no-build --force-recreate >/dev/null 2>&1); then
+    notify "weekly rebuild FAILED for $name; the previous container is still running"
+    docker image rm "$img:$build_id-prev" >/dev/null 2>&1; rc=1; continue
+  fi
+  i=0; ok=0
+  while [ "$i" -lt 30 ]; do if healthy; then ok=1; break; fi; i=$((i + 1)); sleep 1; done
+  if [ "$ok" -eq 1 ]; then
+    docker image rm "$img:$build_id-prev" >/dev/null 2>&1
     logger -t homelab-refresh "$name rebuilt and healthy"
+    report="$report $name ok;"
+  else
+    # The fresh base image broke it: put last week's image back.
+    docker tag "$img:$build_id-prev" "$img:$build_id" 2>/dev/null
+    (cd "$dir" && BUILD_ID="$build_id" docker compose up -d --no-build --force-recreate >/dev/null 2>&1)
+    docker image rm "$img:$build_id-prev" >/dev/null 2>&1
+    if healthy; then notify "weekly: a fresh base image broke $name, so last week's image is back (healthy). Worth a look."
+    else notify "weekly: $name is DOWN after its rebuild and the old image didn't fix it. ./playbook why"; fi
+    rc=1
   fi
 done
 
 docker image prune -f --filter until=720h >/dev/null 2>&1 || true
+docker builder prune -f --filter until=168h >/dev/null 2>&1 || true
 
 latest=$(curl -fsS --max-time 15 https://api.github.com/repos/cloudflare/cloudflared/releases/latest \
   | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')
+tunnel_note=""
 for f in /srv/cloudflared/*/docker-compose.yml; do
   [ -f "$f" ] || continue
   pinned=$(sed -n 's/.*cloudflare\/cloudflared:\([^ "]*\).*/\1/p' "$f" | head -n 1)
   if [ -n "$latest" ] && [ -n "$pinned" ] && [ "$pinned" != "$latest" ]; then
-    /usr/local/sbin/homelab-notify "cloudflared $latest is out; $(dirname "$f") pins $pinned"
+    tunnel_note=" cloudflared $latest is out (you run $pinned): ./playbook server tunnel-update."
   fi
 done
+
+# The weekly all-clear. Silence would look the same as a dead server, so
+# say something every week.
+if [ "$rc" -eq 0 ]; then
+  pending=$(apt-get -s upgrade 2>/dev/null | grep -c '^Inst ' || true)
+  disk=$(df -P / | awk 'NR==2 {print $5}')
+  notify "weekly: all good.${report:+ Rebuilt:$report} ${pending:-0} package updates waiting, disk $disk, up since $(uptime -s 2>/dev/null || echo '?').$tunnel_note"
+elif [ -n "$tunnel_note" ]; then
+  notify "weekly:$tunnel_note"
+fi
 exit "$rc"
