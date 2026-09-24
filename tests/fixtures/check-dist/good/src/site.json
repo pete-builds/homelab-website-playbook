@@ -1,0 +1,14 @@
+{
+  "title": "Fixture Site",
+  "description": "The known-good fixture that check-dist has to pass with no failures and no warnings.",
+  "marker": "Hello from the fixture",
+  "url": "https://example.org",
+  "image": "/og.png",
+  "author": "Fixture Author",
+  "nav": [
+    {
+      "label": "Blog",
+      "href": "/blog/"
+    }
+  ]
+}

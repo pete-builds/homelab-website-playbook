@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Fixture Site</title>
+    <link>https://example.org/</link>
+    <description>Fixture &quot;feed&quot; &amp; friends</description>
+    <language>en</language>
+    <atom:link href="https://example.org/rss.xml" rel="self" type="application/rss+xml"/>
+    <item>
+      <title>CDATA ]]&gt; and &lt;b&gt;&amp; &apos;quotes&apos;</title>
+      <link>https://example.org/blog/hello/</link>
+      <guid isPermaLink="true">https://example.org/blog/hello/</guid>
+      <pubDate>Wed, 23 Sep 2026 00:00:00 GMT</pubDate>
+      <description>The one published post.</description>
+    </item>
+  </channel>
+</rss>

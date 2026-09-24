@@ -1,6 +1,10 @@
-node_modules
-dist
-.astro
-.git
-.env
-.env.*
+# What the Docker build never sees. Docker matches these from the build
+# folder's top; the leading / says so, to match .gitignore.
+/node_modules
+/dist
+/.astro
+/.git
+/.github
+# Secrets, at any depth: a .env inside public/ would be copied into the site.
+**/.env
+**/.env.*

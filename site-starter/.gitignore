@@ -1,6 +1,11 @@
-node_modules/
-dist/
-.astro/
+# Build output, anchored with a leading / so only the TOP-level folders match.
+# A bare `dist/` would also hide something like public/vendor/lib/dist/ from
+# git: every local check (which builds this folder) passes, and the server
+# (which builds from git) breaks.
+/node_modules/
+/dist/
+/.astro/
+# Secrets stay out wherever they are.
 .env
 .env.*
 !.env.example
