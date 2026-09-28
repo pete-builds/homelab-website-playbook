@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Explain a failure: match a log against every failure this playbook knows.
 
-    ./playbook why                  the most recent ./playbook run
+    ./playbook why                  the most recent run
     ./playbook why <logfile>        a specific log
     ./playbook why -                read the log from stdin
     ./playbook why --list           every known failure, one line each
@@ -28,7 +28,7 @@ import sys
 CATALOG = [
     ("needs-terminal", r"has to run in YOUR terminal|sudo: a (terminal|password) is required",
      "This step asks for your server password, so it can't run inside an agent.",
-     "Run the ./playbook command it printed in your own terminal, then come back.", "morpheus", "steps-that-need-your-terminal",
+     "Paste the line it printed (it starts with `./playbook`) into your own terminal, then come back.", "morpheus", "steps-that-need-your-terminal",
      "This step asks for your server password (sudo), so it has to run in YOUR terminal:"),
     ("config", r"playbook\.env: |set these in playbook\.env|no config at .*playbook\.env",
      "playbook.env is missing a value or has one in the wrong shape.",
@@ -76,7 +76,7 @@ CATALOG = [
      "ERROR: Docker is installed as a snap (/snap/bin/docker)."),
     ("docker-group", r"permission denied while trying to connect to the docker|can't talk to docker",
      "Your user was just added to the docker group, and that only applies to NEW logins.",
-     "Run the step again: each ./playbook server step is a fresh login.", "tank", "docker-permission-denied",
+     "Run the step again: each `./playbook server` step is a fresh login.", "tank", "docker-permission-denied",
      "permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock"),
     ("port-in-use", r"port is already allocated|address already in use|bind: address already in use",
      "Another program on the server already uses that port.",
@@ -245,7 +245,7 @@ def main(argv):
     else:
         path = argv[0] if argv else find_default_log()
         if not path:
-            print("No ./playbook runs logged yet. Run a step, or: ./playbook why <logfile>")
+            print("Nothing logged yet (every `./playbook` step logs its run). Or: ./playbook why <logfile>")
             return 3
         try:
             with open(path, errors="replace") as fh:

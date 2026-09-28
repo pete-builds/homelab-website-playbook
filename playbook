@@ -23,7 +23,8 @@
 #       audit        the full security audit                          (your terminal)
 #       tunnel-update  move cloudflared to the latest version, rolls back by itself
 #
-#   ./playbook site <step>        new [--theme T] | dev | check | post "Title" | page "Title" | theme <name>
+#   ./playbook site <step>        new [--theme T] | dev | check | post "Title" | page "Title"
+#                                 meta --title .. --description .. | theme <name>
 #   ./playbook domain <args>      search | check | register | status   (scripts/local/cf-domain.py)
 #   ./playbook tunnel [status]    tunnel, ingress and DNS at Cloudflare (scripts/local/cf-tunnel.py)
 #   ./playbook deploy | rollback | verify

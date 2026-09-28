@@ -5,6 +5,7 @@ lint:
 	shellcheck -S warning playbook scripts/*.sh scripts/*/*.sh templates/updates/homelab-* templates/watch/homelab-* tests/*.sh tests/linux/*.sh
 unit:
 	./tests/test-lib.sh
+	./tests/test-playbook-cli.sh
 	python3 tests/validate-skills.py
 	python3 tests/check-themes.py
 	python3 tests/check-settings.py
