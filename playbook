@@ -158,8 +158,11 @@ EOF
       local p=45999 host
       host=$(ssh -G "$SERVER_HOST" 2>/dev/null | awk '/^hostname /{print $2; exit}'); host=${host:-$SERVER_HOST}
       log "Starting a throwaway listener on $SERVER_HOST:$p (all interfaces, 25 seconds)"
+      # It serves a fresh EMPTY folder, never the folder ssh lands in (your
+      # home): if the firewall turns out to be open, that's all anyone sees.
       # shellcheck disable=SC2029
-      ssh_server "nohup timeout 25 python3 -m http.server $p --bind 0.0.0.0 </dev/null >/dev/null 2>&1 &" || die "couldn't start the listener"
+      ssh_server "d=\$(mktemp -d) && { nohup sh -c 'timeout 25 python3 -m http.server \"\$1\" --bind 0.0.0.0 --directory \"\$2\"; rmdir \"\$2\"' _ $p \"\$d\" </dev/null >/dev/null 2>&1 & }" \
+        || die "couldn't start the listener"
       sleep 2
       # shellcheck disable=SC2029
       ssh_server "curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://127.0.0.1:$p/" | grep -q 200 \
