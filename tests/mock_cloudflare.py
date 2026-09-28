@@ -24,6 +24,8 @@ class State:
         self.registrations = {}
         self.status_polls = 0
         self.calls = []
+        self.always_https = "off"
+        self.settings_forbidden = False
         self.availability = {
             "example.org": {"name": "example.org", "registrable": False, "reason": "domain_unavailable"},
             "fresh-name.dev": {"name": "fresh-name.dev", "registrable": True, "tier": "standard",
@@ -83,6 +85,15 @@ def make_handler(state):
             if m and method == "GET":
                 return self._send(200, TUNNEL_TOKEN)
 
+            if path.endswith("/settings/always_use_https") and method in ("GET", "PATCH"):
+                if state.settings_forbidden:
+                    return self._send(403, errors=[{"code": 9109, "message": "Unauthorized to access requested resource"}])
+                if method == "PATCH":
+                    if body != {"value": "on"}:
+                        return self._send(400, errors=[{"code": 1007, "message": "bad value"}])
+                    state.always_https = "on"
+                return self._send(200, {"id": "always_use_https", "value": state.always_https})
+
             m = re.fullmatch(r"/zones/([^/]+)/dns_records", path)
             if m and method == "GET":
                 return self._send(200, [r for r in state.dns if r["name"] == q.get("name")])
@@ -135,6 +146,9 @@ def make_handler(state):
 
         def do_DELETE(self):
             self._handle("DELETE")
+
+        def do_PATCH(self):
+            self._handle("PATCH")
 
     return H
 

@@ -14,24 +14,32 @@ detect_os
 # shellcheck disable=SC1091
 . /etc/os-release
 
+# Ubuntu's installer offers Docker as a snap. The snap ignores
+# /etc/docker/daemon.json, its unit isn't docker.service, and its confinement
+# can't read /srv. Stop here rather than half-configure it.
+if [ -x /snap/bin/docker ] || { command -v snap >/dev/null 2>&1 && snap list docker >/dev/null 2>&1; }; then
+  die "Docker is installed as a snap (/snap/bin/docker). Remove it first: sudo snap remove --purge docker   then run this again."
+fi
+
 if command -v docker >/dev/null 2>&1; then
   ok "docker already installed: $(docker --version)"
 else
   if [ "$OS_FAMILY" = debian ]; then
+    export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a
     distro="$ID"; [ "$ID" = ubuntu ] || [ "$ID" = debian ] || distro=$(printf '%s' "$ID_LIKE" | awk '{print $1}')
     install -d -m 755 /etc/apt/keyrings
     curl -fsSL "https://download.docker.com/linux/$distro/gpg" -o /etc/apt/keyrings/docker.asc
     chmod a+r /etc/apt/keyrings/docker.asc
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/$distro ${VERSION_CODENAME} stable" \
       > /etc/apt/sources.list.d/docker.list
-    apt-get update -q
-    apt-get install -y -q docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    run_quiet "apt-get update" apt-get -o DPkg::Lock::Timeout=600 update -q
+    run_quiet "install Docker" apt-get -o DPkg::Lock::Timeout=600 install -y -q docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
   else
     repo=centos; [ "$ID" = fedora ] && repo=fedora
     dnf install -y -q dnf-plugins-core
     dnf config-manager addrepo --from-repofile="https://download.docker.com/linux/$repo/docker-ce.repo" 2>/dev/null \
       || dnf config-manager --add-repo "https://download.docker.com/linux/$repo/docker-ce.repo"
-    dnf install -y -q docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    run_quiet "install Docker" dnf install -y -q docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
   fi
   ok "installed $(docker --version)"
 fi

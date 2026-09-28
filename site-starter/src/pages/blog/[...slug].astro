@@ -1,0 +1,49 @@
+---
+import { render } from 'astro:content';
+import Base from '../../layouts/Base.astro';
+import site from '../../site.json';
+import { publishedPosts, isoDate, showDate } from '../../lib/posts.js';
+
+export async function getStaticPaths() {
+  const posts = await publishedPosts();
+  return posts.map((post) => ({ params: { slug: post.id }, props: { post } }));
+}
+
+const { post } = Astro.props;
+const { Content } = await render(post);
+const url = new URL(`/blog/${post.id}/`, Astro.site).href;
+const posting = {
+  '@context': 'https://schema.org',
+  '@type': 'BlogPosting',
+  headline: post.data.title,
+  description: post.data.description,
+  datePublished: post.data.date.toISOString(),
+  url,
+  mainEntityOfPage: url,
+  ...(site.author && { author: { '@type': 'Person', name: site.author } }),
+  ...(post.data.image && { image: new URL(post.data.image, Astro.site).href }),
+};
+---
+<Base
+  title={post.data.title}
+  description={post.data.description}
+  type="article"
+  image={post.data.image}
+  imageAlt={post.data.imageAlt}
+  published={post.data.date}
+  jsonLd={[posting]}
+>
+  <article class="section">
+    <div class="wrap narrow">
+      <p class="eyebrow"><time datetime={isoDate(post.data.date)}>{showDate(post.data.date)}</time></p>
+      <h1>{post.data.title}</h1>
+      <div class="prose post-body">
+        <Content />
+      </div>
+      {post.data.tags && post.data.tags.length > 0 && (
+        <p class="muted">Tagged: {post.data.tags.join(', ')}</p>
+      )}
+      <p><a href="/blog/">All posts</a></p>
+    </div>
+  </article>
+</Base>

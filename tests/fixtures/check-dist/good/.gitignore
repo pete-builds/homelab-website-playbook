@@ -1,0 +1,4 @@
+# The repo's top .gitignore has an unanchored dist/, which would hide this
+# fixture's built site from git (and every check-dist test would then fail on
+# a fresh clone). Re-include it here.
+!/dist/

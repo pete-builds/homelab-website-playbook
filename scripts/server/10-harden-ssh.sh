@@ -63,7 +63,9 @@ if [ "$SSH_PORT" != "22" ]; then
       || semanage port -m -t ssh_port_t -p tcp "$SSH_PORT"
     firewall-cmd --permanent --add-port="$SSH_PORT/tcp" && firewall-cmd --reload
   elif ufw status | grep -c 'Status: active' >/dev/null; then
-    ufw allow "$SSH_PORT/tcp" comment 'ssh'
+    # The same rule 20-firewall.sh would write: LAN only when LAN_CIDR is set.
+    if [ -n "${LAN_CIDR:-}" ]; then ufw allow from "$LAN_CIDR" to any port "$SSH_PORT" proto tcp comment 'ssh from LAN'
+    else ufw limit "$SSH_PORT/tcp" comment 'ssh (rate limited)'; fi
   fi
 fi
 
@@ -92,10 +94,12 @@ done
 
 cat <<EOF
 
-KEEP THIS SESSION OPEN. In a NEW terminal on your laptop run:
-    ssh -p $SSH_PORT $ADMIN_USER@<server>
-and also prove a password is refused:
-    ssh -p $SSH_PORT -o PubkeyAuthentication=no $ADMIN_USER@<server>   (must say Permission denied)
+KEEP THIS SESSION OPEN. In a SECOND terminal on your laptop, in the playbook folder:
+    ./playbook server test-login
+It makes a FRESH login with your key and proves a password is refused.
+(By hand: ssh -o ControlPath=none -p $SSH_PORT $ADMIN_USER@<server>, and the same with
+ -o PubkeyAuthentication=no must say Permission denied. ControlPath=none matters: a
+ shared connection would get in without logging in again, proving nothing.)
 EOF
 if [ "${ASSUME_YES:-0}" = "1" ]; then
   warn "ASSUME_YES=1: no confirmation, no revert timer (for automated tests only)"

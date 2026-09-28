@@ -12,7 +12,8 @@ is the no-agent path.
 
 Money rules, enforced here and not just written down:
   * register re-checks price and availability immediately before buying
-  * it shows the price and makes you TYPE the domain name to confirm
+  * it shows the price and makes you TYPE the domain name plus a code it
+    shows only then, so nothing can type the answer in advance
   * it refuses outright without a terminal; no flag skips the confirmation
   * premium domains are refused
   * auto-renew is ON, so the domain can't lapse and get sniped; turn it off in
@@ -23,6 +24,7 @@ registration agreement in the dashboard first (PLAYBOOK.md, Phase 3).
 """
 import argparse
 import os
+import secrets
 import sys
 import time
 
@@ -100,8 +102,11 @@ def cmd_register(a):
     print(f"  Price      {cost:.2f} {currency}/yr x {a.years} yr = {total:.2f} {currency}")
     print(f"  Renews at  {renewal} {currency}/yr (auto-renew ON)")
     print("  Charged to your Cloudflare account's default payment method. NON-REFUNDABLE.\n")
-    typed = input("Type the domain name to buy it, anything else cancels: ").strip().lower()
-    if typed != domain:
+    # The code is random and shown only now. A program that fakes a terminal
+    # (script, expect) can't type it in advance; a person reads it off the screen.
+    code = f"{secrets.randbelow(9000) + 1000}"
+    typed = input(f"To buy it, type the domain name, a space, then {code}. Anything else cancels: ")
+    if " ".join(typed.strip().lower().split()) != f"{domain} {code}":
         sys.exit("Cancelled. Nothing was bought.")
 
     body = {"domain_name": domain, "years": a.years, "auto_renew": True, "privacy_mode": "redaction"}

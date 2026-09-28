@@ -10,8 +10,12 @@ for c in git ssh curl python3 node npm; do
   if command -v "$c" >/dev/null 2>&1; then ok "$c"; else fail "$c is missing"; rc=1; fi
 done
 if command -v node >/dev/null 2>&1; then
-  major=$(node -p 'process.versions.node.split(".")[0]')
-  if [ "$major" -ge 22 ]; then ok "node $major (Astro needs 22+)"; else fail "node $major is too old; Astro needs 22.12+"; rc=1; fi
+  # Astro needs 22.12, not just "22": 22.0 through 22.11 pass a major-version
+  # check and then fail the build.
+  nv=$(node -p 'process.versions.node')
+  if node -e 'const [a,b]=process.versions.node.split(".").map(Number); process.exit(a>22||(a===22&&b>=12)?0:1)'; then
+    ok "node $nv (Astro needs 22.12+)"
+  else fail "node $nv is too old; Astro needs 22.12 or newer (https://nodejs.org, the LTS)"; rc=1; fi
 fi
 if command -v gh >/dev/null 2>&1; then ok "gh (optional, makes creating the site repo one command)"; else warn "gh not installed (optional)"; fi
 
@@ -19,6 +23,7 @@ here="$(cd "$(dirname "$0")/../.." && pwd)"
 if [ -f "${PLAYBOOK_ENV:-$here/playbook.env}" ]; then
   ok "playbook.env present"
   load_config
+  if validate_config; then ok "playbook.env values look right"; else rc=1; fi
   if [ -n "${SERVER_HOST:-}" ]; then
     if SSH_EXTRA_OPTS="-o BatchMode=yes -o ConnectTimeout=5" ssh_server true 2>/dev/null; then ok "ssh $SERVER_HOST works with your key"
     else warn "ssh $SERVER_HOST doesn't work yet (fine before Phase 1)"; fi
@@ -29,7 +34,8 @@ fi
 
 tok="$HOME/.config/homelab-playbook/cloudflare.token"
 if [ -f "$tok" ]; then
-  m=$(stat -f '%Lp' "$tok" 2>/dev/null || stat -c '%a' "$tok")
+  # GNU first: on Linux, `stat -f` means "filesystem", prints a page of it and fails.
+  m=$(stat -c '%a' "$tok" 2>/dev/null || stat -f '%Lp' "$tok")
   if [ "$m" = "600" ]; then ok "Cloudflare token file is 600"; else fail "$tok is mode $m; chmod 600 it"; rc=1; fi
 else
   warn "no Cloudflare API token yet (Phase 3)"

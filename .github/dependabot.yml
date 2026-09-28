@@ -1,0 +1,23 @@
+# The actions in ci.yml are pinned by commit SHA, which never moves by itself.
+# Dependabot proposes the bumps; CI runs every test on each one before it merges.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ['*']
+  - package-ecosystem: npm
+    directory: /site-starter
+    schedule:
+      interval: monthly
+    groups:
+      # Minor and patch together; a new major (Astro 8, say) arrives alone.
+      npm:
+        update-types: [minor, patch]
+  - package-ecosystem: docker
+    directory: /site-starter
+    schedule:
+      interval: monthly

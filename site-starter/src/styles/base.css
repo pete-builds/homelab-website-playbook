@@ -87,3 +87,19 @@ nav a:not(.button):hover { color: var(--text); }
 .card p { color: var(--text-muted); margin: 0; }
 
 .site-footer { border-top: 1px solid var(--border); padding: 2rem 0; font-size: 0.9rem; }
+
+/* Blog */
+.post-list { list-style: none; padding: 0; margin: 2rem 0; display: grid; gap: 2rem; }
+.post-list .eyebrow { margin-bottom: 0.4rem; }
+.post-list h2 { font-size: 1.5rem; margin-bottom: 0.3rem; }
+.post-list h2 a { color: inherit; text-decoration: none; }
+.post-list h2 a:hover { text-decoration: underline; }
+article h1 { font-size: clamp(2rem, 5vw, 3.25rem); }
+.post-body { margin-top: 2rem; }
+.post-body h2 { font-size: 1.6rem; margin-top: 2em; }
+.post-body h3 { margin-top: 1.5em; }
+.post-body img { max-width: 100%; height: auto; border-radius: var(--radius); }
+.post-body pre { padding: 1rem; overflow-x: auto; border-radius: var(--radius); font-size: 0.9rem; }
+.post-body pre code { background: none; padding: 0; }
+.post-body ul, .post-body ol { padding-left: 1.25rem; }
+.post-body blockquote { margin: 1.5em 0; padding-left: 1rem; border-left: 3px solid var(--border-strong, var(--border)); color: var(--text-muted); }

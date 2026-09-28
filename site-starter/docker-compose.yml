@@ -9,7 +9,9 @@ services:
       context: .
       args:
         BUILD_ID: ${BUILD_ID:-dev}
-    image: {{SITE_NAME}}-site:latest
+    # One image per commit, so a rollback starts the previous one as it is,
+    # with no rebuild (scripts/server/site-deploy.sh).
+    image: {{SITE_NAME}}-site:${BUILD_ID:-dev}
     container_name: {{SITE_NAME}}
     restart: unless-stopped
     ports:

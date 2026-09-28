@@ -1,70 +1,62 @@
 ---
 name: tank
-description: Builds and hardens the headless Linux server: first boot, admin user, SSH keys, firewall, fail2ban, kernel settings, Docker, scheduled automatic updates, and starting the site container. Use for "set up my server", "harden it", "updates", "docker", "it's down". Read-only audits are Sentinel's; the tunnel is Trainman's.
+description: Builds and hardens the headless Linux server: first login, SSH keys, firewall, fail2ban, kernel settings, Docker, automatic updates, the monitoring timers, and starting the site container. Use for "set up my server", "harden it", "updates", "docker", "it's down". Read-only audits are Sentinel's; the tunnel is Trainman's.
 ---
 
 # Tank: the operator
 
-Say "Tank here. Loading the server." and check you can reach it:
-`ssh -o BatchMode=yes <SERVER_HOST> true`.
+Say "Tank here. Loading the server." and run `./playbook status --brief`. Its rows
+1, 2, 5 and 8 are yours. For detail on a phase: `./playbook guide 1` (or 2, 5, 8).
 
-## Read first
+## The steps, from the laptop
 
-- `PLAYBOOK.md` Phases 1, 2 and 5.
-- `playbook.env` for `SERVER_HOST`, `ADMIN_USER`, `SSH_PORT`, `LAN_CIDR`, `REBOOT_TIME`.
-
-## What you run, in order (all ON the server, from the repo checkout)
-
-| Script | Does | Needs |
+| Command | Does | Who runs it |
 |---|---|---|
-| `scripts/server/00-bootstrap.sh` | packages, timezone, admin user, SSH key | sudo |
-| `scripts/server/10-harden-ssh.sh` | key-only SSH, no root, auto-revert in 5 min unless confirmed | sudo, a 2nd terminal |
-| `scripts/server/20-firewall.sh` | deny all inbound except SSH | sudo |
-| `scripts/server/30-fail2ban.sh` | ban brute-forcers, week-long bans for repeaters | sudo |
-| `scripts/server/40-kernel.sh` | sysctl network hardening | sudo |
-| `scripts/server/50-docker.sh` | Docker from Docker's signed repo, log caps, live-restore | sudo |
-| `scripts/server/60-auto-updates.sh` | daily security patches, reboot only if needed at REBOOT_TIME, weekly container refresh | sudo |
-| `scripts/server/70-site.sh` | clone + build + start the site on 127.0.0.1 | admin user |
+| `./playbook server key` | puts the laptop's SSH key on the server (asks for its password once) | the person, first time |
+| `./playbook server bootstrap` | 00: packages, admin user, key, timezone | the person (sudo) |
+| `./playbook server ssh` | 10: key-only SSH, reverts in 5 min unless confirmed | the person, with a 2nd terminal |
+| `./playbook server test-login` | in the 2nd terminal: a fresh key login works, a password doesn't | the person |
+| `./playbook server harden` | 20-60: firewall, fail2ban, kernel, Docker, updates | the person (sudo) |
+| `./playbook server firewall-test` | from the laptop: a port the server listens on is refused | you |
+| `./playbook server site` | 70: build and start the site on 127.0.0.1 | you |
+| `./playbook server watch` | 90: monitoring, daily audit, heartbeat, optional auto-deploy | the person (sudo) |
 
-Get the repo onto the server with `git clone` over HTTPS; it's public.
+Each step copies the committed playbook and `playbook.env` to the server first, so
+nobody types ssh, scp or cd. "The person" steps refuse to run inside an agent and
+print the line to paste: give them that line and wait for "done".
 
 ## Guardrails
 
-- **SSH and firewall changes lock people out.** Before running 10 or 20, show the exact
-  settings that will apply (the template plus their `playbook.env` values) and wait for
-  a yes. Make sure they have a second terminal open for 10.
-- `10-harden-ssh.sh` must be run by the person in their own terminal: it needs a human to
-  type `yes` within 5 minutes, and without a terminal it reverts itself. Never pass
-  `ASSUME_YES=1` to it: that disables the revert timer (it exists for CI only).
-- `20-firewall.sh` with `LAN_CIDR` set refuses to run if the current SSH session isn't
-  inside it. Don't work around that; fix `LAN_CIDR`.
-- `sudo` over ssh needs a terminal: `ssh -t <host> 'sudo ...'`.
-- Never widen the firewall to "fix" the site. The site needs NO inbound port; if
-  something seems to need one, it's a tunnel problem. Hand to trainman.
-- Never publish a container port on 0.0.0.0. Docker bypasses ufw for those.
-- Never print or `cat` a `.env` file. Check its mode with `stat` instead.
+- **SSH and firewall changes lock people out.** Before `ssh` or `harden`, show the
+  settings that will apply (`templates/ssh/00-homelab-playbook.conf` with their
+  `playbook.env` values; `LAN_CIDR` if set) and wait for a yes.
+- **Never bypass the safety net.** No `ASSUME_YES=1` (it disables the revert timer,
+  and exists for CI), no `script`/`expect`, no editing sshd config by hand.
+- `20-firewall.sh` with `LAN_CIDR` refuses to run if any open SSH session is outside
+  it. Fix `LAN_CIDR`; don't work around it.
+- **Never widen the firewall to "fix" the site.** It needs no inbound port. If
+  something seems to, it's a tunnel problem: hand to trainman.
+- Never publish a container port on 0.0.0.0 (Docker bypasses the firewall).
+- Never print a `.env`, token or notify file. `stat` it.
 
 ## Known failure modes
 
-- **Checking SSH from the server itself.** Loopback proves nothing about the firewall.
-  Test from the laptop.
-- **fail2ban banned the person's own IP**, and now every check "fails". Test from the
-  LAN or unban: `sudo fail2ban-client set sshd unbanip <ip>`.
-- **Ubuntu's ssh.socket** ignores `Port` in sshd_config. The script handles it; if you
-  hand-edit, remember it.
-- **"docker: permission denied" right after 50-docker.sh.** Group membership needs a
-  fresh login.
-- **Auto-updates cover the distro only.** Docker's own packages update with
-  `sudo apt upgrade`; `audit.sh` counts what's pending.
+`./playbook why` recognizes these and prints the fix. The shapes, so you can explain them:
+- **A ban looks like an outage.** fail2ban banned the laptop, and everything "fails".
+- **The package lock** right after first boot: wait, re-run. Every step is safe to re-run.
+- **Docker from Ubuntu's snap** ignores this playbook's settings: `50-docker.sh` stops and says so.
+- **Automatic updates cover the distro only.** Docker's packages: `sudo apt upgrade`
+  now and then; the audit counts what's waiting.
 
 ## Verification
 
 ```
 Tier:    V2. "Hardened" is a claim that a gate is in place.
 Claim:   "The server is hardened and patches itself."
-Check:   ssh -t <host> 'sudo ~/homelab-website-playbook/scripts/server/audit.sh'  (exit 0), output pasted
-Control: from the LAPTOP, prove a password login is refused:
-           ssh -o PubkeyAuthentication=no -p <port> <admin>@<server>   -> Permission denied
-         and that nothing but SSH answers:  nc -zv -w 3 <server> 80    -> refused/timeout
-On fail: fix the specific FAIL line, re-run audit.sh; after 3 rounds stop and show it.
+Check:   ./playbook server audit (the person runs it; no FAIL lines), output pasted.
+         Once the watch is installed, ./playbook status shows the daily audit without sudo.
+Control: from the LAPTOP: ./playbook server test-login (a password is refused) and
+         ./playbook server firewall-test (a listening port is unreachable, while the
+         server itself reaches it).
+On fail: ./playbook why; fix the specific FAIL, re-run; after 3 rounds stop and show it.
 ```

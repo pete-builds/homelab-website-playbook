@@ -17,10 +17,14 @@ What "create" does, in the order that avoids every trap in TROUBLESHOOTING.md:
   4. Creates PROXIED CNAMEs for both names -> <tunnel-id>.cfargotunnel.com.
      A tunnel "hostname route" is NOT a DNS record, and an unproxied CNAME to
      cfargotunnel.com does not resolve.
-  5. Saves the run token to ~/.config/homelab-playbook/tunnel-<site>.token
+  5. Turns on "Always Use HTTPS" for the zone, so http:// visitors are sent to
+     https:// (needs Zone > Zone Settings > Edit; without it, a warning says
+     where the switch is).
+  6. Saves the run token to ~/.config/homelab-playbook/tunnel-<site>.token
      (mode 600). The token is never printed.
 
-API token needs: Account > Cloudflare Tunnel > Edit, Zone > DNS > Edit, Zone > Zone > Read.
+API token needs: Account > Cloudflare Tunnel > Edit, Zone > DNS > Edit, Zone > Zone > Read,
+and (recommended) Zone > Zone Settings > Edit.
 """
 import argparse
 import os
@@ -110,6 +114,19 @@ def ensure_dns(zone, host, target, replace):
     print(f"  OK   DNS {host} -> tunnel (proxied)")
 
 
+def ensure_https(zone):
+    try:
+        _, p = call("GET", f"/zones/{zone}/settings/always_use_https")
+        if (p.get("result") or {}).get("value") == "on":
+            print("  OK   Always Use HTTPS is on")
+            return
+        call("PATCH", f"/zones/{zone}/settings/always_use_https", {"value": "on"})
+        print("  OK   Always Use HTTPS turned on (http:// visitors go to https://)")
+    except CFError:
+        print("  WARN couldn't turn on Always Use HTTPS (the token needs Zone > Zone Settings > Edit).\n"
+              "       Dashboard: SSL/TLS > Edge Certificates > Always Use HTTPS")
+
+
 def save_token(acct, tid, site):
     _, p = call("GET", f"/accounts/{acct}/cfd_tunnel/{tid}/token")
     tok = p["result"]
@@ -132,16 +149,14 @@ def cmd_create(a, cfg):
     ensure_ingress(acct, t["id"], hosts, cfg["SITE_PORT"])
     for h in hosts:
         ensure_dns(zone, h, f"{t['id']}.cfargotunnel.com", a.replace_dns)
-    path = save_token(acct, t["id"], site)
-    host = cfg.get("SERVER_HOST", "<server>")
-    port = cfg.get("SSH_PORT", "22")
-    if port and port != "22":
-        host = f"-p {port} {host}"
-    print(f"""
-Next, install the connector on the server (the token travels over SSH stdin,
-never as an argument):
+    ensure_https(zone)
+    save_token(acct, t["id"], site)
+    if not os.environ.get("HLP_FROM_PLAYBOOK"):
+        print("""
+Next, install the connector on the server. The token travels over ssh's
+stdin, never as an argument or on screen:
 
-  ssh {host} 'cd ~/homelab-website-playbook && ./scripts/server/80-tunnel.sh' < {path}
+  ./playbook server tunnel
 """)
 
 

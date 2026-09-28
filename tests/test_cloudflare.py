@@ -15,6 +15,7 @@ What this proves, without a real account or card:
 """
 import os
 import pty
+import re
 import select
 import stat
 import subprocess
@@ -58,7 +59,8 @@ class Base(unittest.TestCase):
         return p.returncode, out
 
     def run_tty(self, args, answer):
-        """Run with a real pseudo-terminal and type `answer` at the prompt."""
+        """Run with a real pseudo-terminal and type `answer` at the prompt.
+        `{code}` in the answer is replaced with the code the prompt shows."""
         pid, fd = pty.fork()
         if pid == 0:
             os.execve(sys.executable, [sys.executable, *args], self.env)
@@ -73,8 +75,9 @@ class Base(unittest.TestCase):
                 if not chunk:
                     break
                 out += chunk
-            if not sent and b"Type the domain name" in out:
-                os.write(fd, (answer + "\n").encode())
+            m = re.search(rb"type the domain name, a space, then (\d{4})", out)
+            if not sent and m:
+                os.write(fd, (answer.replace("{code}", m.group(1).decode()) + "\n").encode())
                 sent = True
         _, status = os.waitpid(pid, 0)
         text = out.decode(errors="replace")
@@ -106,6 +109,19 @@ class TunnelTests(Base):
         with open(path) as fh:
             self.assertEqual(fh.read().strip(), mock.TUNNEL_TOKEN)
 
+    def test_create_turns_on_always_use_https(self):
+        rc, out = self.run_cli(TUNNEL, "create")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.state.always_https, "on")
+        self.assertIn("./playbook server tunnel", out)
+
+    def test_https_setting_without_permission_is_a_warning_not_a_failure(self):
+        self.state.settings_forbidden = True
+        rc, out = self.run_cli(TUNNEL, "create")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("WARN couldn't turn on Always Use HTTPS", out)
+        self.assertEqual(len(self.state.dns), 2)
+
     def test_rerun_is_idempotent(self):
         self.run_cli(TUNNEL, "create")
         before = len(self.state.calls)
@@ -113,7 +129,7 @@ class TunnelTests(Base):
         self.assertEqual(rc, 0, out)
         self.assertEqual(len(self.state.tunnels), 1)
         self.assertEqual(len(self.state.dns), 2)
-        self.assertFalse([c for c in self.state.calls[before:] if c[0] == "POST"], "second run POSTed something")
+        self.assertFalse([c for c in self.state.calls[before:] if c[0] in ("POST", "PATCH")], "second run changed something")
 
     def test_existing_a_record_needs_explicit_replace(self):
         self.state.dns.append({"id": "old", "type": "A", "name": "example.org", "content": "192.0.2.1", "proxied": False})
@@ -163,29 +179,41 @@ class DomainTests(Base):
         self.assertIn("Nothing was bought", out)
         self.assertEqual(self.posted("/registrar/registrations"), [])
 
+    def test_register_name_without_code_cancels(self):
+        # The name alone was the whole confirmation before; now it isn't enough.
+        rc, out = self.run_tty([DOMAIN, "register", "fresh-name.dev"], "fresh-name.dev")
+        self.assertNotEqual(rc, 0)
+        self.assertIn("Nothing was bought", out)
+        self.assertEqual(self.posted("/registrar/registrations"), [])
+
+    def test_register_wrong_code_cancels(self):
+        rc, out = self.run_tty([DOMAIN, "register", "fresh-name.dev"], "fresh-name.dev 0000")
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(self.posted("/registrar/registrations"), [])
+
     def test_register_premium_refused(self):
         rc, out = self.run_cli(DOMAIN, "register", "coffee.xyz")  # never reaches the prompt
         self.assertNotEqual(rc, 0)
-        rc, out = self.run_tty([DOMAIN, "register", "coffee.xyz"], "coffee.xyz")
+        rc, out = self.run_tty([DOMAIN, "register", "coffee.xyz"], "coffee.xyz {code}")
         self.assertNotEqual(rc, 0)
         self.assertIn("tier 'premium'", out)
         self.assertEqual(self.posted("/registrar/registrations"), [])
 
     def test_register_without_price_refused(self):
-        rc, out = self.run_tty([DOMAIN, "register", "noprice.dev"], "noprice.dev")
+        rc, out = self.run_tty([DOMAIN, "register", "noprice.dev"], "noprice.dev {code}")
         self.assertNotEqual(rc, 0)
         self.assertIn("no usable price", out)
         self.assertEqual(self.posted("/registrar/registrations"), [])
 
     def test_register_already_owned_is_not_bought_again(self):
         self.state.registrations["mine-already.dev"] = {"domain_name": "mine-already.dev", "status": "active"}
-        rc, out = self.run_tty([DOMAIN, "register", "mine-already.dev"], "mine-already.dev")
+        rc, out = self.run_tty([DOMAIN, "register", "mine-already.dev"], "mine-already.dev {code}")
         self.assertNotEqual(rc, 0)
         self.assertIn("already registered", out)
         self.assertEqual(self.posted("/registrar/registrations"), [])
 
     def test_register_typed_name_buys_with_auto_renew(self):
-        rc, out = self.run_tty([DOMAIN, "register", "fresh-name.dev"], "fresh-name.dev")
+        rc, out = self.run_tty([DOMAIN, "register", "fresh-name.dev"], "fresh-name.dev {code}")
         self.assertEqual(rc, 0, out)
         posts = self.posted("/registrar/registrations")
         self.assertEqual(len(posts), 1)

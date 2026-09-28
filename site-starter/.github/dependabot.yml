@@ -1,0 +1,30 @@
+# Dependabot opens a pull request when something this site uses has an update.
+# Monthly and grouped, so there are only a few a month to look at: one for
+# the npm packages, one for the GitHub Actions, one for the Docker base images.
+# The site workflow builds every one of them exactly as the server would, so a
+# green check means it is safe to merge.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      # Minor and patch updates together. A major version (a new Astro, say)
+      # comes on its own, so if it needs work it can't hold up the rest.
+      npm:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ['*']
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      docker:
+        patterns: ['*']

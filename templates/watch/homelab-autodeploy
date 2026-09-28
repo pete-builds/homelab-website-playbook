@@ -1,0 +1,37 @@
+#!/bin/sh
+# homelab-autodeploy: when origin/main moves, deploy it. Every 5 minutes from
+# homelab-autodeploy.timer, as root, and ONLY when AUTO_DEPLOY=yes.
+# Installed by scripts/server/90-watch.sh.
+#
+# Push to GitHub (from the laptop, the GitHub website, or a Dependabot merge)
+# and the site is live a few minutes later. The deploy itself is the same
+# site-deploy.sh a laptop deploy runs, as your admin user: build (the site's
+# checks run inside it), swap, prove, roll back on its own if unhealthy.
+# A commit that failed once isn't retried; a rollback pauses this until your
+# next deploy from the laptop.
+set -u
+ETC="${HLP_ETC:-/etc/homelab-playbook}"
+LIB="${HLP_LIB:-/usr/local/lib/homelab-playbook}"
+NOTIFY="${HLP_NOTIFY:-/usr/local/sbin/homelab-notify}"
+notify() { if [ -x "$NOTIFY" ]; then "$NOTIFY" "$*"; else echo "$*"; fi; }
+conf_get() { sed -n "s/^$1=//p" "$2" | head -n 1 | sed "s/^'\(.*\)'\$/\1/"; }
+
+for conf in "$ETC"/sites/*.conf; do
+  [ -f "$conf" ] || continue
+  [ "$(conf_get AUTO_DEPLOY "$conf")" = yes ] || continue
+  site=$(conf_get SITE_NAME "$conf"); port=$(conf_get SITE_PORT "$conf"); user=$(conf_get ADMIN_USER "$conf")
+  out=$(runuser -u "$user" -- "$LIB/scripts/server/site-deploy.sh" sync "$site" "$port" 2>&1)
+  rc=$?
+  printf '%s\n' "$out"
+  sha=$(printf '%s\n' "$out" | sed -n 's/^OK \([0-9a-f]*\) is live.*/\1/p' | tail -n 1)
+  case "$rc" in
+    0) [ -z "$sha" ] || notify "$site: deployed $sha ($(runuser -u "$user" -- git -C "/srv/sites/$site" log -1 --format=%s 2>/dev/null))" ;;
+    3) notify "$site: auto-deploy of origin/main was unhealthy, so the previous version is back. $(printf '%s\n' "$out" | grep -m1 FAIL)" ;;
+    4) ;;  # site-deploy.sh already sent SITE DOWN
+    *) case "$out" in
+         *"build of"*) notify "$site: auto-deploy build failed; the old version is still live. $(printf '%s\n' "$out" | grep -m1 'FAIL')" ;;
+         *) logger -t homelab-autodeploy -- "$site: $out" 2>/dev/null || true ;;  # network blips: journal only
+       esac ;;
+  esac
+done
+exit 0

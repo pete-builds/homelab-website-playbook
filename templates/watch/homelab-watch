@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# homelab-watch: is the site up? Runs every 10 minutes from homelab-watch.timer,
+# as root. Installed by scripts/server/90-watch.sh.
+#
+# For every site in /etc/homelab-playbook/sites/*.conf it checks:
+#   origin   127.0.0.1:<port>/healthz and the home page both answer 200
+#   tunnel   the connector says it's ready (cloudflared's /ready, on loopback)
+#   public   https://<domain> through Cloudflare, the way visitors arrive:
+#            200, a negative control, the marker, the headers (verify-site.sh)
+#   disk     the root filesystem is under 90% full
+#
+# It only talks when something CHANGES: "down" after two failed checks in a
+# row (one blip is not worth waking you), and "back up" when it recovers.
+# On the second failure it restarts the stuck container once: Docker's restart
+# policy acts when a container exits, never when it's merely unhealthy.
+# When everything passes it pings HEARTBEAT_URL, if you set one: a push monitor
+# (healthchecks.io, free) that alarms when the pings STOP. That's the only way
+# to hear about a dead server or a power cut, because a dead server can't
+# send anything.
+#
+# The latest result lands in /var/lib/homelab-playbook/watch.txt, readable
+# without sudo, so `./playbook status` can show it.
+#
+#   homelab-watch          the timer's run
+#   homelab-watch --boot   after a reboot: same checks, always reports
+set -u
+
+ETC="${HLP_ETC:-/etc/homelab-playbook}"
+VAR="${HLP_VAR:-/var/lib/homelab-playbook}"
+LIB="${HLP_LIB:-/usr/local/lib/homelab-playbook}"
+NOTIFY="${HLP_NOTIFY:-/usr/local/sbin/homelab-notify}"
+boot=0; [ "${1:-}" = "--boot" ] && boot=1
+
+mkdir -p "$VAR"
+notify() { if [ -x "$NOTIFY" ]; then "$NOTIFY" "$*"; else logger -t homelab-watch -- "$*" 2>/dev/null || echo "$*"; fi; }
+# conf_get KEY FILE: parsed, never sourced.
+conf_get() { sed -n "s/^$1=//p" "$2" | head -n 1 | sed "s/^'\(.*\)'\$/\1/"; }
+code() { curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$1"; }
+
+check_site() { # check_site <conf>: prints problems, "; "-separated; empty means healthy
+  local conf="$1" site port domain marker mport p="" hz home cf out rc
+  site=$(conf_get SITE_NAME "$conf"); port=$(conf_get SITE_PORT "$conf")
+  domain=$(conf_get DOMAIN "$conf"); marker=$(conf_get SITE_MARKER "$conf")
+  mport=$(conf_get TUNNEL_METRICS_PORT "$conf"); mport=${mport:-20241}
+
+  hz=$(code "http://127.0.0.1:$port/healthz"); home=$(code "http://127.0.0.1:$port/")
+  [ "$hz" = 200 ] && [ "$home" = 200 ] || p="${p}origin: healthz $hz, home $home; "
+
+  cf=$(docker inspect -f '{{.State.Running}}' "cloudflared-$site" 2>/dev/null || echo missing)
+  if [ "$cf" != true ]; then p="${p}tunnel: connector container $cf; "
+  elif [ "$(code "http://127.0.0.1:$mport/ready")" != 200 ]; then p="${p}tunnel: connector not ready; "; fi
+
+  out=$("$LIB/scripts/verify-site.sh" "https://$domain" "$marker" 2>&1); rc=$?
+  case "$rc" in
+    0) ;;
+    3) ;;  # a Cloudflare challenge blocked the check: says nothing either way
+    *) p="${p}public: $(printf '%s\n' "$out" | grep -m1 'FAIL' | sed 's/^ *FAIL *//'); " ;;
+  esac
+  printf '%s' "$p"
+}
+
+now=$(date +%s)
+disk=$(df -P / | awk 'NR==2 {gsub("%","",$5); print $5}')
+summary=""; all_ok=1
+
+for conf in "$ETC"/sites/*.conf; do
+  [ -f "$conf" ] || continue
+  site=$(conf_get SITE_NAME "$conf")
+  st="$VAR/watch-$site.state"
+  fails=0; since=0; told=up
+  if [ -f "$st" ]; then
+    fails=$(sed -n 's/^fails=//p' "$st"); since=$(sed -n 's/^since=//p' "$st"); told=$(sed -n 's/^told=//p' "$st")
+  fi
+  problems=$(check_site "$conf")
+  [ "${disk:-0}" -lt 90 ] || problems="${problems}disk: ${disk}% full; "
+
+  if [ -n "$problems" ]; then
+    fails=$((${fails:-0} + 1)); [ "${since:-0}" -gt 0 ] || since=$now
+    note=""
+    # Second strike: restart what's stuck, once, then look again.
+    if [ "$fails" -eq 2 ]; then
+      case "$problems" in *origin:*) docker restart "$site" >/dev/null 2>&1 && note=" I restarted the site container." ;; esac
+      case "$problems" in *tunnel:*) docker restart "cloudflared-$site" >/dev/null 2>&1 && note="$note I restarted the tunnel connector." ;; esac
+      if [ -n "$note" ]; then
+        sleep "${HLP_SETTLE:-20}"
+        problems=$(check_site "$conf")
+        if [ -z "$problems" ]; then
+          notify "$site was down for ~$(( (now - since) / 60 + 1 )) min;$note It's back up."
+          fails=0; since=0; told=up
+          printf 'fails=0\nsince=0\ntold=up\n' > "$st"
+          summary="$summary$now ok $site (self-healed)\n"
+          continue
+        fi
+        note="$note It didn't help: this needs you."
+      fi
+    fi
+    all_ok=0
+    if [ "$boot" -eq 1 ]; then
+      notify "back up after a reboot, but $site is NOT healthy: ${problems%; }"
+      told=down
+    elif [ "$fails" -ge 2 ] && [ "$told" != down ]; then
+      notify "$site is DOWN: ${problems%; }.$note Run ./playbook status on your laptop."
+      told=down
+    fi
+    summary="$summary$now FAIL $site: ${problems%; }\n"
+  else
+    if [ "$told" = down ]; then notify "$site is back up (down since $(date -d "@$since" '+%a %H:%M' 2>/dev/null || echo "$since"))"; fi
+    [ "$boot" -eq 0 ] || notify "back up after a reboot (kernel $(uname -r)): $site healthy, disk ${disk}%"
+    fails=0; since=0; told=up
+    summary="$summary$now ok $site\n"
+  fi
+  printf 'fails=%s\nsince=%s\ntold=%s\n' "$fails" "$since" "$told" > "$st"
+done
+
+if [ -z "$summary" ]; then
+  summary="$now FAIL no sites configured in $ETC/sites\n"; all_ok=0
+fi
+# %b: expand the \n separators, but never treat a % in a problem as a format.
+printf '%b' "$summary" > "$VAR/watch.txt.tmp" && chmod 644 "$VAR/watch.txt.tmp" && mv "$VAR/watch.txt.tmp" "$VAR/watch.txt"
+cat "$VAR/watch.txt"
+
+if [ "$all_ok" -eq 1 ] && [ -r "$ETC/notify.env" ]; then
+  hb=$(sed -n 's/^HEARTBEAT_URL=//p' "$ETC/notify.env" | head -n 1)
+  # stderr dropped: curl's errors can quote the URL, and the URL is the secret.
+  [ -z "$hb" ] || curl -fsS -m 10 --retry 2 -o /dev/null "$hb" 2>/dev/null || logger -t homelab-watch "heartbeat ping failed" 2>/dev/null || true
+fi
+exit 0

@@ -1,37 +1,26 @@
 #!/usr/bin/env bash
 # Put the previous deploy back, from your LAPTOP:   ./scripts/local/rollback.sh
+# (or ./playbook rollback)
 #
-# The server remembers every commit it replaced in /srv/sites/<site>/.deploy-history.
-# This checks out the most recent one (detached), rebuilds, and verifies the
-# live site. Your next ./scripts/local/deploy.sh returns the server to main.
+# The server remembers every commit it replaced. This starts the most recent
+# one's image again (no rebuild), proves it on the server, then proves it live.
+# Auto-deploy, if you turned it on, pauses until your next deploy, so it can't
+# put the version you just rolled away from straight back.
 set -euo pipefail
 # shellcheck source=../lib.sh
 . "$(dirname "$0")/../lib.sh"
 
 load_config
 require_vars SERVER_HOST SITE_NAME SITE_PORT DOMAIN
+# LIVE_URL is for the test suite; your site is https://DOMAIN.
+live="${LIVE_URL:-https://$DOMAIN}"
 
 confirm "Roll $DOMAIN back to its previous deploy?" || die "cancelled"
 
-# shellcheck disable=SC2087
-target=$(ssh_server bash -s -- "$SITE_NAME" "$SITE_PORT" <<'REMOTE'
-set -euo pipefail
-site=$1; port=$2
-cd "/srv/sites/$site"
-[ -s .deploy-history ] || { echo "no previous deploy recorded" >&2; exit 1; }
-prev=$(tail -n 1 .deploy-history)
-git checkout -q --detach "$prev"
-BUILD_ID="$prev" docker compose up -d --build >&2
-i=0
-until [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$port/healthz")" = "200" ]; do
-  i=$((i + 1)); [ "$i" -lt 30 ] || { echo "rolled-back build is not healthy" >&2; exit 1; }
-  sleep 1
-done
-# Drop it from history so a second rollback goes one further back.
-sed '$d' .deploy-history > .deploy-history.tmp && mv .deploy-history.tmp .deploy-history
-echo "$prev"
-REMOTE
-)
-ok "server is back on $target"
-"$PLAYBOOK_ROOT/scripts/verify-site.sh" "https://$DOMAIN" "build:$target" || die "live site is not serving $target yet"
-ok "live: https://$DOMAIN is $target"
+out=$(ssh_server bash -s -- rollback "$SITE_NAME" "$SITE_PORT" < "$PLAYBOOK_ROOT/scripts/server/site-deploy.sh") \
+  || { printf '%s\n' "$out"; die "rollback failed; the lines above say why"; }
+printf '%s\n' "$out"
+target=$(printf '%s\n' "$out" | sed -n 's/^OK \([0-9a-f]*\) is live.*/\1/p' | tail -n 1)
+[ -n "$target" ] || die "the server didn't say which version is live"
+"$PLAYBOOK_ROOT/scripts/verify-site.sh" "$live" "build:$target" || die "live site is not serving $target yet"
+ok "live: $live is $target"
