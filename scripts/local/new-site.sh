@@ -20,6 +20,7 @@ done
 
 load_config
 require_vars SITE_NAME DOMAIN SITE_PORT SITE_MARKER SITE_DIR
+validate_config || die "fix playbook.env first"
 need_cmd git
 git var GIT_AUTHOR_IDENT >/dev/null 2>&1 || die "git doesn't know who you are yet. Run:
   git config --global user.name  \"Your Name\"
@@ -28,10 +29,6 @@ SITE_TITLE="${SITE_TITLE:-$DOMAIN}"
 SITE_DESCRIPTION="${SITE_DESCRIPTION:-$SITE_TITLE}"
 export SITE_NAME DOMAIN SITE_PORT SITE_MARKER SITE_TITLE SITE_DESCRIPTION
 
-case "$SITE_NAME" in *[!a-z0-9-]*|'') die "SITE_NAME must be lowercase letters, digits and dashes" ;; esac
-case "$SITE_PORT" in *[!0-9]*|'') die "SITE_PORT must be a number" ;; esac
-case "$DOMAIN" in *[!a-z0-9.-]*|''|.*|*.) die "DOMAIN must look like example.com (lowercase)" ;; esac
-case "$SITE_MARKER" in *[!A-Za-z0-9\ .,!?-]*) die "SITE_MARKER: letters, digits, spaces and . , ! ? - only (HTML escaping would change anything else, and the live check would never find it)" ;; esac
 
 if [ -f "$theme" ]; then theme_file="$theme"
 else theme_file="$PLAYBOOK_ROOT/themes/$theme.css"; fi
@@ -48,14 +45,25 @@ rm -rf "$dest/node_modules" "$dest/dist" "$dest/.astro"
 
 log "Filling in your details"
 # Free text (title, description, marker) goes through JSON encoding, so quotes
-# and apostrophes can't break the build. Everything else is validated above.
+# and apostrophes can't break the build. It's MERGED into the starter's
+# site.json, which also holds the url, the nav and the share image; the render
+# loop below fills {{DOMAIN}} in the url. Everything else is validated above.
 python3 - "$dest/src/site.json" <<'PY'
 import json, os, sys
-json.dump({"title": os.environ["SITE_TITLE"], "description": os.environ["SITE_DESCRIPTION"],
-           "marker": os.environ["SITE_MARKER"]}, open(sys.argv[1], "w"), indent=2, ensure_ascii=False)
+path = sys.argv[1]
+with open(path, encoding="utf-8") as f:
+    site = json.load(f)
+site.update(title=os.environ["SITE_TITLE"], description=os.environ["SITE_DESCRIPTION"],
+            marker=os.environ["SITE_MARKER"])
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(site, f, indent=2, ensure_ascii=False)
+    f.write("\n")
 PY
+# The site's uptime workflow runs this same verifier against the live site.
+mkdir -p "$dest/scripts"
+cp "$PLAYBOOK_ROOT/scripts/verify-site.sh" "$dest/scripts/verify-site.sh"
 find "$dest" -type f \( -name '*.astro' -o -name '*.mjs' -o -name '*.json' -o -name '*.yml' \
-  -o -name '*.txt' -o -name '*.css' -o -name '*.md' \) -print | while IFS= read -r f; do
+  -o -name '*.txt' -o -name '*.css' -o -name '*.md' \) -not -path '*/node_modules/*' -print | while IFS= read -r f; do
   if grep -q '{{[A-Z_]*}}' "$f"; then render_template "$f" "$f"; fi
 done
 ok "rendered templates with $DOMAIN"
@@ -69,8 +77,8 @@ ok "created $dest (theme: $(basename "$theme_file" .css))"
 cat <<EOF
 
 Next:
-  cd $dest
-  npm install && npm run dev          # http://localhost:4322, edit src/pages/index.astro
-  gh repo create $SITE_NAME --public --source . --push      # public is simplest; see PLAYBOOK for private
-Then set SITE_REPO in playbook.env to that repo's URL.
+  ./playbook site dev                  # preview at http://localhost:4322
+  ./playbook site post "Hello"         # a blog post (the model only writes the words)
+  cd $dest && gh repo create $SITE_NAME --public --source . --push
+Then set SITE_REPO in playbook.env to that repo's URL. Its README says what's where.
 EOF
