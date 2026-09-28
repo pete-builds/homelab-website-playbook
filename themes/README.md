@@ -49,8 +49,8 @@ is reserved for `--accent`. Check it and use it:
 
 ```sh
 python3 tests/check-themes.py themes/yours.css
-scripts/local/new-site.sh --theme themes/yours.css      # new site
-cp themes/yours.css "$SITE_DIR/src/styles/theme.css"     # existing site
+./playbook site new --theme themes/yours.css      # a new site
+./playbook site theme themes/yours.css            # an existing site (checks it, then swaps it in)
 ```
 
 When a brand's accent is too light for small text on its background (common with
