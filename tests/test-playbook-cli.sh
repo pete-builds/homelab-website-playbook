@@ -65,5 +65,35 @@ STUB
 out=$("$pb" server test-login 2>&1)
 printf '%s' "$out" | grep -q 'used a shared connection' && no "test-login's logins can reuse a shared connection" || ok "test-login forces a fresh connection (ControlPath=none) for both logins"
 
+# firewall-test against a server with NO firewall: the ssh stub runs the remote
+# half right here, starting in the server's home folder the way sshd does. The
+# test must FAIL, and what the open port showed meanwhile must be an empty
+# folder. It used to serve the admin's home: browsable by the whole network
+# for 25 seconds on exactly the server whose firewall is broken.
+if ! command -v timeout >/dev/null 2>&1; then
+  # macOS has no timeout(1); servers always do. Enough of one for this test.
+  printf '#!/bin/sh\ns=$1; shift\n"$@" & p=$!\n( sleep "$s"; kill "$p" 2>/dev/null ) &\nwait "$p"\n' > "$t/bin/timeout"
+  chmod +x "$t/bin/timeout"
+fi
+{
+  mkdir -p "$t/srvhome" "$t/tmp"
+  printf 'x\n' > "$t/srvhome/SENTINEL-in-home"
+  cat > "$t/bin/ssh" <<STUB
+#!/usr/bin/env bash
+[ "\$1" = -G ] && { echo "hostname 127.0.0.1"; exit 0; }
+while [ \$# -gt 0 ]; do case "\$1" in -p|-l|-o|-i|-b) shift 2 ;; -*) shift ;; *) shift; break ;; esac; done
+cd "$t/srvhome" && exec bash -c "\$*"
+STUB
+  # A listener left from an earlier run would answer instead of this one.
+  i=0; while curl -s -o /dev/null --max-time 1 http://127.0.0.1:45999/ && [ "$i" -lt 30 ]; do i=$((i + 1)); sleep 1; done
+  out=$(TMPDIR="$t/tmp" "$pb" server firewall-test 2>&1); rc=$?
+  listing=$(curl -s --max-time 3 http://127.0.0.1:45999/)
+  [ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'NOT blocking' && ok "control: firewall-test FAILS when the laptop reaches the port" \
+    || { no "firewall-test passed a server with no firewall (exit $rc)"; printf '%s\n' "$out" | tail -5; }
+  if [ -z "$listing" ]; then no "couldn't read what the open port served, so the next check proves nothing"
+  elif printf '%s' "$listing" | grep -q 'SENTINEL-in-home'; then no "the open port served the admin's home folder"
+  else ok "the open port served an empty folder, not the admin's home"; fi
+}
+
 echo "cli: $n checks, $bad failed"
 [ "$bad" -eq 0 ]
