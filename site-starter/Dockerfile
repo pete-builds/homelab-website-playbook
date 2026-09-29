@@ -1,7 +1,7 @@
 # Build the static site, then serve it from nginx. Two stages, so the running
 # image carries no node, no source and no build tools: just html, css, images
 # and a web server.
-FROM node:22-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /app
 
 # Dependencies first, so a content-only change doesn't reinstall everything.
