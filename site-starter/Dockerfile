@@ -15,7 +15,7 @@ ENV PUBLIC_BUILD_ID=${BUILD_ID}
 # so it can never replace the running one.
 RUN npm run build && npm run check
 
-FROM nginx:1.30-alpine AS runtime
+FROM nginx:1.31-alpine AS runtime
 RUN rm -rf /usr/share/nginx/html/*
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
